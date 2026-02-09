@@ -36,9 +36,9 @@ write_files:
       maxretry = 3
       bantime = 7200
 
-  # Claude Code settings.json with TelegramBridge config
-  # Written directly to persistent volume (mounted by fs_setup before write_files)
-  - path: /mnt/pai-data/claude/settings.json
+  # Claude Code settings.json — Terraform source of truth
+  # Staged to temp path; merged into volume config by setup-pai.sh
+  - path: /tmp/pai-settings-source.json
     permissions: '0600'
     content: |
       {
@@ -165,10 +165,11 @@ write_files:
 
       # Set up persistent storage symlinks
       # Volume is already mounted at /mnt/pai-data by cloud-init fs_setup/mounts
-      # settings.json is already written there by cloud-init write_files
       log "Setting up persistent storage symlinks..."
+      mkdir -p /mnt/pai-data/claude
+      mkdir -p /mnt/pai-data/projects
 
-      # ~/.claude -> /mnt/pai-data/claude (settings.json already there)
+      # ~/.claude -> /mnt/pai-data/claude
       if [ ! -L ~/.claude ]; then
         rm -rf ~/.claude 2>/dev/null || true
         ln -s /mnt/pai-data/claude ~/.claude
@@ -176,11 +177,27 @@ write_files:
       fi
 
       # ~/projects -> /mnt/pai-data/projects (user files persist across deploys)
-      mkdir -p /mnt/pai-data/projects
       if [ ! -L ~/projects ]; then
         rm -rf ~/projects 2>/dev/null || true
         ln -s /mnt/pai-data/projects ~/projects
         log "Created symlink ~/projects -> /mnt/pai-data/projects"
+      fi
+
+      # Merge Terraform config into existing settings.json (preserves server-side keys)
+      SETTINGS="/mnt/pai-data/claude/settings.json"
+      SOURCE="/tmp/pai-settings-source.json"
+      if [ -f "$SOURCE" ]; then
+        if [ -f "$SETTINGS" ]; then
+          log "Merging Terraform config into existing settings.json..."
+          jq -s '.[0] * .[1]' "$SETTINGS" "$SOURCE" > "${SETTINGS}.tmp" \
+            && mv "${SETTINGS}.tmp" "$SETTINGS"
+        else
+          log "No existing settings.json, using Terraform config as-is..."
+          cp "$SOURCE" "$SETTINGS"
+        fi
+        chmod 600 "$SETTINGS"
+        rm -f "$SOURCE"
+        log "Settings merged successfully"
       fi
 
       # 1. Install Claude Code (native binary, no Node.js needed)
