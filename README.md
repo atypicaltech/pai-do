@@ -135,6 +135,17 @@ The bot registers these commands automatically:
 - Volume (10GB): $1/mo
 - Backups: ~$5/mo
 
+## Versioning
+
+This project uses [CalVer](https://calver.org/) with the format `vYYYY.MM.DD`.
+
+To create a release:
+```bash
+git tag v2026.02.09 && git push --tags
+```
+
+Multiple releases on the same day use a patch suffix: `v2026.02.09.1`, `v2026.02.09.2`.
+
 ## Local Development
 
 ```bash
