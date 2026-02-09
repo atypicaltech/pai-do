@@ -65,7 +65,7 @@ func LoadConfig() (*Config, error) {
 
 	botToken := env["TELEGRAM_BOT_TOKEN"]
 	if botToken == "" {
-		return nil, fmt.Errorf("TELEGRAM_BOT_TOKEN not found in settings.json → env")
+		return nil, fmt.Errorf("TELEGRAM_BOT_TOKEN not found in settings.json -> env")
 	}
 
 	// Parse telegramBridge section

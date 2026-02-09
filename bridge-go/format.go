@@ -7,7 +7,7 @@ import (
 )
 
 // markdownToTelegramHTML converts standard Markdown to Telegram-supported HTML.
-// Processing order: code blocks → inline code → escape → inline formatting.
+// Processing order: code blocks -> inline code -> escape -> inline formatting.
 func markdownToTelegramHTML(md string) string {
 	var placeholders []string
 	placeholder := func(content string) string {
@@ -54,7 +54,7 @@ func markdownToTelegramHTML(md string) string {
 	}
 	out = rebuilt.String()
 
-	// 4. Headings → bold
+	// 4. Headings -> bold
 	headingRe := regexp.MustCompile(`(?m)^#{1,6}\s+(.+)$`)
 	out = headingRe.ReplaceAllString(out, "<b>$1</b>")
 
@@ -123,7 +123,7 @@ func parseResponse(text, mode string) []string {
 		if voiceLine != "" {
 			content = voiceLine
 			if taskSummary != "" {
-				content += "\n\n📋 " + taskSummary
+				content += "\n\n\U0001F4CB " + taskSummary
 			}
 		} else {
 			content = text
@@ -142,7 +142,7 @@ func parseResponse(text, mode string) []string {
 	return chunkForTelegram(content, 4000)
 }
 
-var voiceLineRe = regexp.MustCompile(`(?m)🗣️\s*(?:PAI|Ghost):\s*(.+?)$`)
+var voiceLineRe = regexp.MustCompile("(?m)\U0001F5E3\uFE0F\\s*(?:PAI|Ghost):\\s*(.+?)$")
 
 func extractVoiceLine(text string) string {
 	match := voiceLineRe.FindStringSubmatch(text)
