@@ -186,17 +186,17 @@ write_files:
       # Merge Terraform config into existing settings.json (preserves server-side keys)
       SETTINGS="/mnt/pai-data/claude/settings.json"
       SOURCE="/tmp/pai-settings-source.json"
-      if [ -f "$SOURCE" ]; then
-        if [ -f "$SETTINGS" ]; then
+      if [ -f "$$SOURCE" ]; then
+        if [ -f "$$SETTINGS" ]; then
           log "Merging Terraform config into existing settings.json..."
-          jq -s '.[0] * .[1]' "$SETTINGS" "$SOURCE" > "${SETTINGS}.tmp" \
-            && mv "${SETTINGS}.tmp" "$SETTINGS"
+          jq -s '.[0] * .[1]' "$$SETTINGS" "$$SOURCE" > "$${SETTINGS}.tmp" \
+            && mv "$${SETTINGS}.tmp" "$$SETTINGS"
         else
           log "No existing settings.json, using Terraform config as-is..."
-          cp "$SOURCE" "$SETTINGS"
+          cp "$$SOURCE" "$$SETTINGS"
         fi
-        chmod 600 "$SETTINGS"
-        rm -f "$SOURCE"
+        chmod 600 "$$SETTINGS"
+        rm -f "$$SOURCE"
         log "Settings merged successfully"
       fi
 
