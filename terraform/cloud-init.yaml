@@ -1,0 +1,199 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+
+packages:
+  - ufw
+  - fail2ban
+  - curl
+  - jq
+
+write_files:
+  # Fail2ban jail config
+  - path: /etc/fail2ban/jail.local
+    content: |
+      [DEFAULT]
+      bantime = 3600
+      findtime = 600
+      maxretry = 5
+
+      [sshd]
+      enabled = true
+      port = ssh
+      filter = sshd
+      logpath = /var/log/auth.log
+      maxretry = 3
+      bantime = 7200
+
+  # Claude Code settings.json with TelegramBridge config
+  - path: /root/.claude/settings.json
+    permissions: '0600'
+    content: |
+      {
+        "env": {
+          "TELEGRAM_BOT_TOKEN": "${telegram_bot_token}"
+        },
+        "telegramBridge": {
+          "enabled": true,
+          "allowed_users": [${telegram_allowed_users}],
+          "polling_mode": "long-polling",
+          "sessions": {
+            "timeout_minutes": 30,
+            "max_concurrent": 2,
+            "default_work_dir": "~/projects",
+            "default_model": "claude-sonnet-4-5-20250929"
+          },
+          "security": {
+            "require_passphrase": false,
+            "rate_limit_per_minute": 10
+          },
+          "response": {
+            "format": "full",
+            "forward_progress": true
+          },
+          "server": {
+            "port": 7777
+          }
+        }
+      }
+
+  # Claude Code onboarding bypass for headless auth
+  - path: /root/.claude.json
+    permissions: '0600'
+    content: |
+      {
+        "hasCompletedOnboarding": true
+      }
+
+  # PAI Telegram Bridge systemd service
+  - path: /etc/systemd/system/pai-telegram-bridge.service
+    content: |
+      [Unit]
+      Description=PAI Telegram Bridge
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      User=root
+      Environment=HOME=/root
+      Environment=CLAUDE_CODE_OAUTH_TOKEN=${claude_oauth_token}
+      Environment=PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin
+      ExecStart=/usr/local/bin/pai-bridge
+      Restart=always
+      RestartSec=10
+      StandardOutput=journal
+      StandardError=journal
+
+      [Install]
+      WantedBy=multi-user.target
+
+  # PAI setup script
+  - path: /root/setup-pai.sh
+    permissions: '0700'
+    content: |
+      #!/bin/bash
+      export HOME=/root
+      export PATH="$PATH:/usr/local/bin:/root/.local/bin"
+      LOG=/var/log/pai-setup.log
+
+      log() { echo "$(date): $1" >> $LOG; }
+
+      log "Starting PAI setup"
+
+      # Set up persistent storage symlink
+      log "Setting up persistent storage..."
+      PERSISTENT_DIR="/mnt/pai-data/claude"
+      if [ ! -d "$PERSISTENT_DIR" ]; then
+        mkdir -p "$PERSISTENT_DIR"
+        log "Created persistent directory"
+      fi
+
+      # If ~/.claude exists as a real directory (not symlink), migrate it
+      if [ -d ~/.claude ] && [ ! -L ~/.claude ]; then
+        log "Migrating existing data to persistent volume..."
+        cp -a ~/.claude/. "$PERSISTENT_DIR/" 2>/dev/null || true
+        rm -rf ~/.claude
+      fi
+
+      # Create symlink if it doesn't exist
+      if [ ! -L ~/.claude ]; then
+        ln -s "$PERSISTENT_DIR" ~/.claude
+        log "Created symlink ~/.claude -> $PERSISTENT_DIR"
+      fi
+
+      # 1. Install Claude Code (native binary — no Node.js needed)
+      log "Installing Claude Code..."
+      curl -fsSL https://claude.ai/install.sh | bash
+      export PATH="$PATH:/root/.local/bin"
+      hash -r
+
+      CLAUDE_PATH=$(which claude 2>/dev/null || echo "")
+      if [ -z "$CLAUDE_PATH" ]; then
+        log "ERROR: Claude Code CLI not found after install"
+        exit 1
+      fi
+      log "Claude Code installed at $CLAUDE_PATH ($(claude --version 2>/dev/null))"
+
+      # 3. Download PAI Bridge binary from GitHub Release
+      log "Downloading PAI Bridge..."
+      BRIDGE_URL="https://github.com/atypicaltech/pai-do/releases/latest/download/pai-bridge-linux-amd64"
+      curl -fsSL "$BRIDGE_URL" -o /usr/local/bin/pai-bridge
+      chmod +x /usr/local/bin/pai-bridge
+      log "PAI Bridge installed at /usr/local/bin/pai-bridge"
+
+      # 4. Create projects directory (default workdir)
+      mkdir -p /root/projects
+
+      # 5. Create state directory for session persistence
+      mkdir -p /root/.claude/skills/TelegramBridge/state
+
+      # 6. Enable and start the bridge service
+      log "Starting PAI Telegram Bridge service..."
+      systemctl daemon-reload
+      systemctl enable pai-telegram-bridge
+      systemctl start pai-telegram-bridge
+      sleep 3
+
+      if systemctl is-active pai-telegram-bridge >/dev/null 2>&1; then
+        log "SUCCESS: PAI Telegram Bridge running"
+      else
+        log "WARNING: Bridge may not be running, checking logs..."
+        journalctl -u pai-telegram-bridge --no-pager -n 20 >> $LOG
+      fi
+
+      log "Setup complete - access via Telegram bot"
+      rm -f /root/setup-pai.sh
+
+runcmd:
+  # Setup fail2ban
+  - systemctl enable fail2ban
+  - systemctl start fail2ban
+
+  # Setup UFW firewall - SSH only
+  - ufw --force enable
+  - ufw allow ssh
+  - ufw logging on
+
+  # Mount persistent volume
+  - mkdir -p /mnt/pai-data
+  - |
+    VOLUME_DEV="/dev/disk/by-id/scsi-0DO_Volume_${volume_name}"
+    if [ -e "$VOLUME_DEV" ]; then
+      if ! blkid "$VOLUME_DEV" | grep -q TYPE; then
+        mkfs.ext4 "$VOLUME_DEV"
+      fi
+      mount -o defaults,nofail,discard "$VOLUME_DEV" /mnt/pai-data
+      echo "$VOLUME_DEV /mnt/pai-data ext4 defaults,nofail,discard 0 2" >> /etc/fstab
+    fi
+
+  # Install Tailscale
+  - curl -fsSL https://tailscale.com/install.sh | sh
+  - tailscale up --auth-key="${tailscale_auth_key}" --hostname=pai-prod
+
+  # Run PAI setup
+  - /root/setup-pai.sh
+
+  # Security hardening
+  - sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+  - systemctl restart ssh

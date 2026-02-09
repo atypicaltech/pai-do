@@ -1,0 +1,58 @@
+name: Deploy PAI
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy Infrastructure
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        working-directory: terraform
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: '1.8.0'
+
+      - name: OpenTofu Init
+        run: tofu init
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.DO_SPACES_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.DO_SPACES_SECRET_KEY }}
+
+      - name: OpenTofu Plan
+        run: tofu plan -out=tfplan
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.DO_SPACES_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.DO_SPACES_SECRET_KEY }}
+          TF_VAR_do_token: ${{ secrets.DO_TOKEN }}
+          TF_VAR_ssh_fingerprint: ${{ secrets.SSH_FINGERPRINT }}
+          TF_VAR_claude_oauth_token: ${{ secrets.CLAUDE_OAUTH_TOKEN }}
+          TF_VAR_telegram_bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TF_VAR_telegram_allowed_users: ${{ secrets.TELEGRAM_ALLOWED_USERS }}
+          TF_VAR_tailscale_auth_key: ${{ secrets.TAILSCALE_AUTH_KEY }}
+
+      - name: OpenTofu Apply
+        if: github.ref == 'refs/heads/main'
+        run: tofu apply tfplan
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.DO_SPACES_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.DO_SPACES_SECRET_KEY }}
+
+      - name: Output Summary
+        if: github.ref == 'refs/heads/main'
+        run: |
+          echo "### PAI Deployed!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**SSH:** $(tofu output -raw ssh_command)" >> $GITHUB_STEP_SUMMARY
+          echo "**Tailscale:** $(tofu output -raw tailscale_hostname)" >> $GITHUB_STEP_SUMMARY
+          echo "**Health:** $(tofu output -raw health_url)" >> $GITHUB_STEP_SUMMARY
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.DO_SPACES_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.DO_SPACES_SECRET_KEY }}
