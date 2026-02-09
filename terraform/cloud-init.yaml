@@ -122,7 +122,7 @@ write_files:
         log "Created symlink ~/.claude -> $PERSISTENT_DIR"
       fi
 
-      # 1. Install Claude Code (native binary — no Node.js needed)
+      # 1. Install Claude Code (native binary, no Node.js needed)
       log "Installing Claude Code..."
       curl -fsSL https://claude.ai/install.sh | bash
       export PATH="$PATH:/root/.local/bin"
