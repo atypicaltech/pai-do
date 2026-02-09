@@ -9,6 +9,16 @@ packages:
   - jq
   - golang-go
 
+fs_setup:
+  - label: pai-data
+    device: /dev/disk/by-id/scsi-0DO_Volume_${volume_name}
+    filesystem: ext4
+    overwrite: false
+
+mounts:
+  - ["/dev/disk/by-id/scsi-0DO_Volume_${volume_name}",
+     "/mnt/pai-data", "ext4", "defaults,nofail,discard", "0", "2"]
+
 write_files:
   # Fail2ban jail config
   - path: /etc/fail2ban/jail.local
@@ -27,10 +37,23 @@ write_files:
       bantime = 7200
 
   # Claude Code settings.json with TelegramBridge config
-  - path: /root/.claude/settings.json
+  # Written directly to persistent volume (mounted by fs_setup before write_files)
+  - path: /mnt/pai-data/claude/settings.json
     permissions: '0600'
     content: |
       {
+        "permissions": {
+          "allow": [
+            "Bash",
+            "Read",
+            "Write",
+            "Edit",
+            "Glob",
+            "Grep",
+            "WebFetch",
+            "NotebookEdit"
+          ]
+        },
         "env": {
           "TELEGRAM_BOT_TOKEN": "${telegram_bot_token}"
         },
@@ -73,6 +96,7 @@ write_files:
       Description=PAI Telegram Bridge
       After=network-online.target
       Wants=network-online.target
+      RequiresMountsFor=/mnt/pai-data
 
       [Service]
       Type=simple
@@ -80,6 +104,8 @@ write_files:
       Environment=HOME=/root
       Environment=CLAUDE_CODE_OAUTH_TOKEN=${claude_oauth_token}
       Environment=PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin
+      ExecStartPre=/bin/test -L /root/.claude
+      ExecStartPre=/bin/test -f /root/.claude/settings.json
       ExecStart=/usr/local/bin/pai-bridge
       Restart=always
       RestartSec=10
@@ -137,25 +163,24 @@ write_files:
 
       log "Starting PAI setup"
 
-      # Set up persistent storage symlink
-      log "Setting up persistent storage..."
-      PERSISTENT_DIR="/mnt/pai-data/claude"
-      if [ ! -d "$PERSISTENT_DIR" ]; then
-        mkdir -p "$PERSISTENT_DIR"
-        log "Created persistent directory"
-      fi
+      # Set up persistent storage symlinks
+      # Volume is already mounted at /mnt/pai-data by cloud-init fs_setup/mounts
+      # settings.json is already written there by cloud-init write_files
+      log "Setting up persistent storage symlinks..."
 
-      # If ~/.claude exists as a real directory (not symlink), migrate it
-      if [ -d ~/.claude ] && [ ! -L ~/.claude ]; then
-        log "Migrating existing data to persistent volume..."
-        cp -a ~/.claude/. "$PERSISTENT_DIR/" 2>/dev/null || true
-        rm -rf ~/.claude
-      fi
-
-      # Create symlink if it doesn't exist
+      # ~/.claude -> /mnt/pai-data/claude (settings.json already there)
       if [ ! -L ~/.claude ]; then
-        ln -s "$PERSISTENT_DIR" ~/.claude
-        log "Created symlink ~/.claude -> $PERSISTENT_DIR"
+        rm -rf ~/.claude 2>/dev/null || true
+        ln -s /mnt/pai-data/claude ~/.claude
+        log "Created symlink ~/.claude -> /mnt/pai-data/claude"
+      fi
+
+      # ~/projects -> /mnt/pai-data/projects (user files persist across deploys)
+      mkdir -p /mnt/pai-data/projects
+      if [ ! -L ~/projects ]; then
+        rm -rf ~/projects 2>/dev/null || true
+        ln -s /mnt/pai-data/projects ~/projects
+        log "Created symlink ~/projects -> /mnt/pai-data/projects"
       fi
 
       # 1. Install Claude Code (native binary, no Node.js needed)
@@ -182,13 +207,10 @@ write_files:
       chmod +x /usr/local/bin/pai-bridge
       log "PAI Bridge built and installed at /usr/local/bin/pai-bridge"
 
-      # 3. Create projects directory (default workdir)
-      mkdir -p /root/projects
-
-      # 4. Create state directory for session persistence
+      # 3. Create state directories on persistent volume
       mkdir -p /root/.claude/skills/TelegramBridge/state
 
-      # 5. Enable and start the bridge service
+      # 4. Enable and start the bridge service
       log "Starting PAI Telegram Bridge service..."
       systemctl daemon-reload
       systemctl enable pai-telegram-bridge
@@ -214,18 +236,6 @@ runcmd:
   - ufw --force enable
   - ufw allow ssh
   - ufw logging on
-
-  # Mount persistent volume
-  - mkdir -p /mnt/pai-data
-  - |
-    VOLUME_DEV="/dev/disk/by-id/scsi-0DO_Volume_${volume_name}"
-    if [ -e "$VOLUME_DEV" ]; then
-      if ! blkid "$VOLUME_DEV" | grep -q TYPE; then
-        mkfs.ext4 "$VOLUME_DEV"
-      fi
-      mount -o defaults,nofail,discard "$VOLUME_DEV" /mnt/pai-data
-      echo "$VOLUME_DEV /mnt/pai-data ext4 defaults,nofail,discard 0 2" >> /etc/fstab
-    fi
 
   # Install Tailscale
   - curl -fsSL https://tailscale.com/install.sh | sh
