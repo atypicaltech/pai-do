@@ -36,6 +36,13 @@ resource "digitalocean_droplet" "pai" {
     telegram_allowed_users = var.telegram_allowed_users
     tailscale_auth_key     = var.tailscale_auth_key
     volume_name            = digitalocean_volume.pai_data.name
+    go_mod                 = file("${path.module}/../bridge-go/go.mod")
+    go_sum                 = file("${path.module}/../bridge-go/go.sum")
+    main_go                = file("${path.module}/../bridge-go/main.go")
+    config_go              = file("${path.module}/../bridge-go/config.go")
+    bot_go                 = file("${path.module}/../bridge-go/bot.go")
+    session_go             = file("${path.module}/../bridge-go/session.go")
+    format_go              = file("${path.module}/../bridge-go/format.go")
   })
 }
 

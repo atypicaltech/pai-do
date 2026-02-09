@@ -7,6 +7,7 @@ packages:
   - fail2ban
   - curl
   - jq
+  - golang-go
 
 write_files:
   # Fail2ban jail config
@@ -88,6 +89,41 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 
+  # Bridge source - go.mod
+  - path: /root/bridge-go/go.mod
+    content: |
+      ${indent(6, go_mod)}
+
+  # Bridge source - go.sum
+  - path: /root/bridge-go/go.sum
+    content: |
+      ${indent(6, go_sum)}
+
+  # Bridge source - main.go
+  - path: /root/bridge-go/main.go
+    content: |
+      ${indent(6, main_go)}
+
+  # Bridge source - config.go
+  - path: /root/bridge-go/config.go
+    content: |
+      ${indent(6, config_go)}
+
+  # Bridge source - bot.go
+  - path: /root/bridge-go/bot.go
+    content: |
+      ${indent(6, bot_go)}
+
+  # Bridge source - session.go
+  - path: /root/bridge-go/session.go
+    content: |
+      ${indent(6, session_go)}
+
+  # Bridge source - format.go
+  - path: /root/bridge-go/format.go
+    content: |
+      ${indent(6, format_go)}
+
   # PAI setup script
   - path: /root/setup-pai.sh
     permissions: '0700'
@@ -135,20 +171,24 @@ write_files:
       fi
       log "Claude Code installed at $CLAUDE_PATH ($(claude --version 2>/dev/null))"
 
-      # 3. Download PAI Bridge binary from GitHub Release
-      log "Downloading PAI Bridge..."
-      BRIDGE_URL="https://github.com/atypicaltech/pai-do/releases/latest/download/pai-bridge-linux-amd64"
-      curl -fsSL "$BRIDGE_URL" -o /usr/local/bin/pai-bridge
+      # 2. Build PAI Bridge from embedded source
+      log "Building PAI Bridge..."
+      cd /root/bridge-go
+      CGO_ENABLED=0 go build -ldflags="-s -w" -o /usr/local/bin/pai-bridge .
+      if [ $? -ne 0 ]; then
+        log "ERROR: Go build failed"
+        exit 1
+      fi
       chmod +x /usr/local/bin/pai-bridge
-      log "PAI Bridge installed at /usr/local/bin/pai-bridge"
+      log "PAI Bridge built and installed at /usr/local/bin/pai-bridge"
 
-      # 4. Create projects directory (default workdir)
+      # 3. Create projects directory (default workdir)
       mkdir -p /root/projects
 
-      # 5. Create state directory for session persistence
+      # 4. Create state directory for session persistence
       mkdir -p /root/.claude/skills/TelegramBridge/state
 
-      # 6. Enable and start the bridge service
+      # 5. Enable and start the bridge service
       log "Starting PAI Telegram Bridge service..."
       systemctl daemon-reload
       systemctl enable pai-telegram-bridge
