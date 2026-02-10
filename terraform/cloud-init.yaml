@@ -155,12 +155,12 @@ write_files:
 
       # Wait for DO volume to be attached (Terraform attaches after droplet creation)
       VOLUME_DEV="/dev/disk/by-id/scsi-0DO_Volume_${volume_name}"
-      log "Waiting for volume device $$VOLUME_DEV..."
+      log "Waiting for volume device $VOLUME_DEV..."
       for i in $(seq 1 60); do
-        [ -e "$$VOLUME_DEV" ] && break
+        [ -e "$VOLUME_DEV" ] && break
         sleep 5
       done
-      if [ ! -e "$$VOLUME_DEV" ]; then
+      if [ ! -e "$VOLUME_DEV" ]; then
         log "ERROR: Volume device not found after 5 minutes"
         exit 1
       fi
@@ -169,12 +169,12 @@ write_files:
       # Mount the persistent volume
       mkdir -p /mnt/pai-data
       if ! mountpoint -q /mnt/pai-data; then
-        mount -o defaults,nofail,discard "$$VOLUME_DEV" /mnt/pai-data
+        mount -o defaults,nofail,discard "$VOLUME_DEV" /mnt/pai-data
         log "Mounted volume at /mnt/pai-data"
       fi
       # Add to fstab for reboot persistence
       if ! grep -q pai-data /etc/fstab; then
-        echo "$$VOLUME_DEV /mnt/pai-data ext4 defaults,nofail,discard 0 2" >> /etc/fstab
+        echo "$VOLUME_DEV /mnt/pai-data ext4 defaults,nofail,discard 0 2" >> /etc/fstab
         log "Added volume to fstab"
       fi
 
@@ -200,17 +200,17 @@ write_files:
       # Merge Terraform config into existing settings.json (preserves server-side keys)
       SETTINGS="/mnt/pai-data/claude/settings.json"
       SOURCE="/tmp/pai-settings-source.json"
-      if [ -f "$$SOURCE" ]; then
-        if [ -f "$$SETTINGS" ]; then
+      if [ -f "$SOURCE" ]; then
+        if [ -f "$SETTINGS" ]; then
           log "Merging Terraform config into existing settings.json..."
-          jq -s '.[0] * .[1]' "$$SETTINGS" "$$SOURCE" > "$${SETTINGS}.tmp" \
-            && mv "$${SETTINGS}.tmp" "$$SETTINGS"
+          jq -s '.[0] * .[1]' "$SETTINGS" "$SOURCE" > "$${SETTINGS}.tmp" \
+            && mv "$${SETTINGS}.tmp" "$SETTINGS"
         else
           log "No existing settings.json, using Terraform config as-is..."
-          cp "$$SOURCE" "$$SETTINGS"
+          cp "$SOURCE" "$SETTINGS"
         fi
-        chmod 600 "$$SETTINGS"
-        rm -f "$$SOURCE"
+        chmod 600 "$SETTINGS"
+        rm -f "$SOURCE"
         log "Settings merged successfully"
       fi
 
