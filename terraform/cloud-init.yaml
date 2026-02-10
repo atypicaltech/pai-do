@@ -26,7 +26,7 @@ write_files:
       maxretry = 3
       bantime = 7200
 
-  # Claude Code settings.json — Terraform source of truth
+  # Claude Code settings.json - Terraform source of truth
   # Staged to temp path; merged into volume config by setup-pai.sh
   - path: /tmp/pai-settings-source.json
     permissions: '0600'
