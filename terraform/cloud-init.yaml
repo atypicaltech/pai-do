@@ -9,16 +9,6 @@ packages:
   - jq
   - golang-go
 
-fs_setup:
-  - label: pai-data
-    device: /dev/disk/by-id/scsi-0DO_Volume_${volume_name}
-    filesystem: ext4
-    overwrite: false
-
-mounts:
-  - ["/dev/disk/by-id/scsi-0DO_Volume_${volume_name}",
-     "/mnt/pai-data", "ext4", "defaults,nofail,discard", "0", "2"]
-
 write_files:
   # Fail2ban jail config
   - path: /etc/fail2ban/jail.local
@@ -163,8 +153,32 @@ write_files:
 
       log "Starting PAI setup"
 
+      # Wait for DO volume to be attached (Terraform attaches after droplet creation)
+      VOLUME_DEV="/dev/disk/by-id/scsi-0DO_Volume_${volume_name}"
+      log "Waiting for volume device $$VOLUME_DEV..."
+      for i in $(seq 1 60); do
+        [ -e "$$VOLUME_DEV" ] && break
+        sleep 5
+      done
+      if [ ! -e "$$VOLUME_DEV" ]; then
+        log "ERROR: Volume device not found after 5 minutes"
+        exit 1
+      fi
+      log "Volume device found"
+
+      # Mount the persistent volume
+      mkdir -p /mnt/pai-data
+      if ! mountpoint -q /mnt/pai-data; then
+        mount -o defaults,nofail,discard "$$VOLUME_DEV" /mnt/pai-data
+        log "Mounted volume at /mnt/pai-data"
+      fi
+      # Add to fstab for reboot persistence
+      if ! grep -q pai-data /etc/fstab; then
+        echo "$$VOLUME_DEV /mnt/pai-data ext4 defaults,nofail,discard 0 2" >> /etc/fstab
+        log "Added volume to fstab"
+      fi
+
       # Set up persistent storage symlinks
-      # Volume is already mounted at /mnt/pai-data by cloud-init fs_setup/mounts
       log "Setting up persistent storage symlinks..."
       mkdir -p /mnt/pai-data/claude
       mkdir -p /mnt/pai-data/projects
