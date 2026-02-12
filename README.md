@@ -21,13 +21,30 @@ You (Telegram) → Bot API → TelegramBridge daemon → Claude Code CLI → Ant
                                            VPS sandbox (~/projects)
 ```
 
-The bridge is a lightweight Bun process (~30MB idle) that:
+The bridge is a lightweight Go binary (~30MB) that:
 1. Long-polls Telegram for messages
 2. Spawns `claude -p` subprocesses per message
 3. Streams responses back to Telegram with HTML formatting
 4. Manages conversation sessions with `--resume`
+5. Logs conversations, generates summaries, and injects prior context into new sessions
 
 Claude Code runs against your subscription (Pro/Max), not metered API.
+
+## Memory System
+
+The bridge implements multi-layer memory for session continuity:
+
+```
+/mnt/pai-data/memory/
+  conversations/{userID}/{sessionID}.jsonl   # Every turn logged
+  summaries/{userID}/{date}-{sessionID}.md   # Claude-generated session summaries
+  daily/{userID}/{YYYY-MM-DD}.md             # Daily append-only notes
+```
+
+- **Conversation logging** — every message exchange is written to JSONL on the persistent volume
+- **Pre-death flush** — when sessions timeout, get `/clear`ed, or the bridge shuts down, Claude summarizes the conversation into a durable markdown file
+- **Cross-session context** — new sessions load the last 5 summaries + today's/yesterday's daily notes, so Claude knows what happened before
+- **Daily reset** — sessions reset at 4 AM (configurable) instead of short idle timeouts
 
 ## Required GitHub Secrets
 
@@ -69,7 +86,7 @@ Push to `main` branch and trigger the workflow manually (workflow_dispatch).
 2. Persistent volume attached and mounted
 3. Tailscale VPN connection (hostname: `pai-prod`)
 4. Claude Code native binary (auto-updates)
-5. PAI Bridge binary from GitHub Release
+5. PAI Bridge binary (built from source via `git clone`)
 6. Bridge running as systemd service
 7. Health check server on port 7777
 

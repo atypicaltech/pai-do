@@ -7,6 +7,7 @@ packages:
   - fail2ban
   - curl
   - jq
+  - git
   - golang-go
 
 write_files:
@@ -106,46 +107,6 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 
-  # Bridge source - go.mod
-  - path: /root/bridge-go/go.mod
-    content: |
-      ${indent(6, go_mod)}
-
-  # Bridge source - go.sum
-  - path: /root/bridge-go/go.sum
-    content: |
-      ${indent(6, go_sum)}
-
-  # Bridge source - main.go
-  - path: /root/bridge-go/main.go
-    content: |
-      ${indent(6, main_go)}
-
-  # Bridge source - config.go
-  - path: /root/bridge-go/config.go
-    content: |
-      ${indent(6, config_go)}
-
-  # Bridge source - bot.go
-  - path: /root/bridge-go/bot.go
-    content: |
-      ${indent(6, bot_go)}
-
-  # Bridge source - session.go
-  - path: /root/bridge-go/session.go
-    content: |
-      ${indent(6, session_go)}
-
-  # Bridge source - format.go
-  - path: /root/bridge-go/format.go
-    content: |
-      ${indent(6, format_go)}
-
-  # Bridge source - memory.go
-  - path: /root/bridge-go/memory.go
-    content: |
-      ${indent(6, memory_go)}
-
   # PAI setup script
   - path: /root/setup-pai.sh
     permissions: '0700'
@@ -233,9 +194,15 @@ write_files:
       fi
       log "Claude Code installed at $CLAUDE_PATH ($(claude --version 2>/dev/null))"
 
-      # 2. Build PAI Bridge from embedded source
+      # 2. Clone repo and build PAI Bridge
+      log "Cloning pai-do repository..."
+      git clone https://github.com/atypicaltech/pai-do.git /root/pai-do
+      if [ $? -ne 0 ]; then
+        log "ERROR: git clone failed"
+        exit 1
+      fi
       log "Building PAI Bridge..."
-      cd /root/bridge-go
+      cd /root/pai-do/bridge-go
       CGO_ENABLED=0 go build -ldflags="-s -w" -o /usr/local/bin/pai-bridge .
       if [ $? -ne 0 ]; then
         log "ERROR: Go build failed"
