@@ -1,11 +1,11 @@
 output "droplet_ip" {
-  description = "Public IP address (for SSH fallback)"
+  description = "Public IP (no SSH — Tailscale only)"
   value       = digitalocean_droplet.pai.ipv4_address
 }
 
 output "ssh_command" {
-  description = "SSH command to connect to the droplet"
-  value       = "ssh root@${digitalocean_droplet.pai.ipv4_address}"
+  description = "SSH command via Tailscale"
+  value       = "ssh root@pai-prod"
 }
 
 output "tailscale_hostname" {

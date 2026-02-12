@@ -45,20 +45,17 @@ resource "digitalocean_volume_attachment" "pai_data" {
   volume_id  = digitalocean_volume.pai_data.id
 }
 
-# Minimal firewall - SSH only (Tailscale handles the rest)
+# Firewall - no inbound access (SSH via Tailscale only)
 resource "digitalocean_firewall" "pai" {
   name = "pai-firewall"
 
   droplet_ids = [digitalocean_droplet.pai.id]
 
-  # SSH only
-  inbound_rule {
-    protocol         = "tcp"
-    port_range       = "22"
-    source_addresses = ["0.0.0.0/0", "::/0"]
-  }
+  # No inbound rules — SSH access via Tailscale only
+  # Tailscale uses outbound UDP (WireGuard), unaffected by inbound rules
+  # Break-glass: DigitalOcean web console (Droplets > Console)
 
-  # All outbound (needed for Tailscale, Telegram API, npm/bun packages)
+  # All outbound (needed for Tailscale, Telegram API, package installs)
   outbound_rule {
     protocol              = "tcp"
     port_range            = "1-65535"

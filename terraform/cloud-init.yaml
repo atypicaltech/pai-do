@@ -249,14 +249,16 @@ runcmd:
   - systemctl enable fail2ban
   - systemctl start fail2ban
 
-  # Setup UFW firewall - SSH only
+  # Setup UFW firewall - SSH only via Tailscale interface
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow in on tailscale0 to any port 22
   - ufw --force enable
-  - ufw allow ssh
   - ufw logging on
 
   # Install Tailscale
   - curl -fsSL https://tailscale.com/install.sh | sh
-  - tailscale up --auth-key="${tailscale_auth_key}" --hostname=pai-prod
+  - tailscale up --auth-key="${tailscale_auth_key}" --hostname=pai-prod --ssh
 
   # Run PAI setup
   - /root/setup-pai.sh
