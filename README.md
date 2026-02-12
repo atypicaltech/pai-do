@@ -6,8 +6,8 @@ Self-hosted Claude Code + Telegram Bridge on DigitalOcean, deployed via OpenTofu
 
 - **Compute**: DigitalOcean Droplet (s-2vcpu-4gb, Ubuntu 24.04)
 - **Storage**: 10GB persistent DO Volume at `/mnt/pai-data`
-- **Network**: Tailscale VPN mesh (no public exposure except SSH)
-- **Security**: UFW firewall (SSH only), fail2ban, SSH key-only auth
+- **Network**: Tailscale VPN mesh (zero inbound firewall rules, no public exposure)
+- **Security**: Privilege separation (bridge=root, Claude=pai), metadata API blocked, UFW on tailscale0 only, fail2ban
 - **Runtime**: Claude Code (native binary) + PAI Bridge (Go static binary)
 - **Interface**: Telegram bot via TelegramBridge daemon
 - **Auth**: Claude subscription via OAuth token (no metered API billing)
@@ -16,9 +16,9 @@ Self-hosted Claude Code + Telegram Bridge on DigitalOcean, deployed via OpenTofu
 ## How It Works
 
 ```
-You (Telegram) → Bot API → TelegramBridge daemon → Claude Code CLI → Anthropic API
-                                                  ↓
-                                           VPS sandbox (~/projects)
+You (Telegram) → Bot API → TelegramBridge (root) → Claude Code CLI (pai) → Anthropic API
+                                                           ↓
+                                                    /home/pai/projects (unprivileged)
 ```
 
 The bridge is a lightweight Go binary (~30MB) that:
@@ -46,6 +46,33 @@ The bridge implements multi-layer memory for session continuity:
 - **Cross-session context** — new sessions load the last 5 summaries + today's/yesterday's daily notes, so Claude knows what happened before
 - **Daily reset** — sessions reset at 4 AM (configurable) instead of short idle timeouts
 
+## Security Model
+
+### Network Isolation
+- **Zero inbound firewall rules** — DigitalOcean firewall blocks all inbound traffic
+- **Tailscale-only SSH** — UFW allows SSH only on the `tailscale0` interface
+- **No public SSH** — SSH key is provisioned for break-glass access via DO web console only
+
+### Privilege Separation
+- **Bridge runs as root** — required for spawning subprocesses with credential drop
+- **Claude runs as `pai`** — unprivileged user created at boot; all Claude subprocesses run via `SysProcAttr.Credential` (setuid/setgid)
+- **Home directory isolation** — `/home/pai` owned by `pai:pai`, working directory `/home/pai/projects`
+
+### Secrets Management
+- **Secrets in `EnvironmentFile`** — tokens stored in `/etc/pai/secrets.env` (0400 root:root), loaded via systemd `EnvironmentFile=` directive
+- **Metadata API blocked** — `iptables -I OUTPUT 1 -d 169.254.169.254 -j REJECT` prevents exfiltration of user_data secrets after boot
+- **No secrets in process environment** — tokens injected into `settings.json` at boot, not passed as env vars to Claude
+
+### Systemd Hardening
+- `ProtectKernelTunables=true` — read-only `/proc/sys`, `/sys`
+- `ProtectKernelModules=true` — denies module loading
+- `ProtectControlGroups=true` — read-only `/sys/fs/cgroup`
+
+### Break-Glass Access
+If Tailscale is down:
+1. **DigitalOcean web console** — Droplets > pai-prod > Access > Launch Droplet Console
+2. **Temporary firewall rule** — `doctl compute firewall add-rules <fw-id> --inbound-rules "protocol:tcp,ports:22,address:YOUR_IP/32"` (remove after use)
+
 ## Required GitHub Secrets
 
 | Secret | Description | Where to Get |
@@ -53,7 +80,7 @@ The bridge implements multi-layer memory for session continuity:
 | `DO_TOKEN` | DigitalOcean API token | DO Dashboard → API → Generate New Token |
 | `DO_SPACES_ACCESS_KEY` | Spaces access key for Terraform state | DO Dashboard → Spaces → Manage Keys |
 | `DO_SPACES_SECRET_KEY` | Spaces secret key for Terraform state | DO Dashboard → Spaces → Manage Keys |
-| `SSH_FINGERPRINT` | SSH key fingerprint (MD5 format) | DO Dashboard → Settings → Security → SSH Keys |
+| `SSH_FINGERPRINT` | SSH key fingerprint for break-glass console access | DO Dashboard → Settings → Security → SSH Keys |
 | `CLAUDE_OAUTH_TOKEN` | Claude Code OAuth token | Run `claude setup-token` locally |
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token | @BotFather on Telegram |
 | `TELEGRAM_ALLOWED_USERS` | Telegram user IDs (quoted, comma-separated) | Send `/start` to @userinfobot |
@@ -82,13 +109,15 @@ Push to `main` branch and trigger the workflow manually (workflow_dispatch).
 
 ### What Gets Deployed
 
-1. DigitalOcean Droplet with Ubuntu 24.04
-2. Persistent volume attached and mounted
-3. Tailscale VPN connection (hostname: `pai-prod`)
-4. Claude Code native binary (auto-updates)
-5. PAI Bridge binary (downloaded from latest GitHub release)
-6. Bridge running as systemd service
-7. Health check server on port 7777
+1. DigitalOcean Droplet with Ubuntu 24.04 (zero inbound firewall rules)
+2. Persistent volume attached and mounted at `/mnt/pai-data`
+3. Tailscale VPN connection (hostname: `pai-prod`, SSH enabled)
+4. Unprivileged `pai` user for Claude subprocess isolation
+5. Claude Code installed as `pai` user (`/home/pai/.local/bin/claude`)
+6. PAI Bridge binary (downloaded from latest GitHub release)
+7. Bridge running as systemd service (root, with credential drop to `pai` for Claude)
+8. Health check server on port 7777
+9. Metadata API blocked after setup completes
 
 ## Post-Deployment
 
@@ -104,7 +133,7 @@ cat /var/log/pai-setup.log
 
 # Check bridge service
 systemctl status pai-telegram-bridge
-journalctl -u pai-telegram-bridge -f
+grep pai-bridge /var/log/syslog | tail -20
 
 # Check health
 curl http://localhost:7777/health
@@ -119,8 +148,8 @@ tailscale status
 # Restart bridge
 systemctl restart pai-telegram-bridge
 
-# View logs
-journalctl -u pai-telegram-bridge -f
+# View logs (bridge logs to syslog, not journal)
+grep pai-bridge /var/log/syslog | tail -50
 
 # Stop bridge
 systemctl stop pai-telegram-bridge
