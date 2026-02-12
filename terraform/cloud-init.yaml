@@ -1,5 +1,5 @@
 #cloud-config
-# PAI infrastructure - v2026.02.9
+# PAI infrastructure - v2026.02.10
 package_update: true
 package_upgrade: true
 
