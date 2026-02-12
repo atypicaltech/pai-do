@@ -9,6 +9,15 @@ packages:
   - jq
 
 write_files:
+  # Secrets file - root-only, consumed by systemd EnvironmentFile
+  # This is still in user_data, but we block the metadata API via iptables after boot
+  - path: /etc/pai/secrets.env
+    permissions: '0400'
+    owner: root:root
+    content: |
+      CLAUDE_CODE_OAUTH_TOKEN=${claude_oauth_token}
+      TELEGRAM_BOT_TOKEN=${telegram_bot_token}
+
   # Fail2ban jail config
   - path: /etc/fail2ban/jail.local
     content: |
@@ -44,7 +53,7 @@ write_files:
           ]
         },
         "env": {
-          "TELEGRAM_BOT_TOKEN": "${telegram_bot_token}"
+          "TELEGRAM_BOT_TOKEN": "INJECTED_AT_BOOT"
         },
         "telegramBridge": {
           "enabled": true,
@@ -92,8 +101,8 @@ write_files:
       [Service]
       Type=simple
       User=root
+      EnvironmentFile=/etc/pai/secrets.env
       Environment=HOME=/root
-      Environment=CLAUDE_CODE_OAUTH_TOKEN=${claude_oauth_token}
       Environment=PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin
       ExecStartPre=/bin/test -L /root/.claude
       ExecStartPre=/bin/test -f /root/.claude/settings.json
@@ -181,6 +190,17 @@ write_files:
         log "Settings merged successfully"
       fi
 
+      # Inject secrets into settings.json from the secrets env file (not from user_data)
+      if [ -f /etc/pai/secrets.env ]; then
+        source /etc/pai/secrets.env
+        if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -f "$SETTINGS" ]; then
+          jq --arg token "$TELEGRAM_BOT_TOKEN" '.env.TELEGRAM_BOT_TOKEN = $token' "$SETTINGS" > "$${SETTINGS}.tmp" \
+            && mv "$${SETTINGS}.tmp" "$SETTINGS"
+          chmod 600 "$SETTINGS"
+          log "Injected bot token into settings.json from secrets.env"
+        fi
+      fi
+
       # 1. Install Claude Code (native binary, no Node.js needed)
       log "Installing Claude Code..."
       curl -fsSL https://claude.ai/install.sh | bash
@@ -244,3 +264,8 @@ runcmd:
   # Security hardening
   - sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
   - systemctl restart ssh
+
+  # Block DigitalOcean metadata API - prevents secrets exfiltration via user_data
+  # This MUST be the last runcmd entry (after all setup that might need metadata)
+  - iptables -A OUTPUT -d 169.254.169.254 -j REJECT --reject-with icmp-port-unreachable
+  - ip6tables -A OUTPUT -d fd00:ec2::254 -j REJECT --reject-with icmp6-port-unreachable
