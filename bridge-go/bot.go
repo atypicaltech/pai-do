@@ -506,9 +506,11 @@ func extractVoiceDirective(text string) (string, string) {
 	var voiceText string
 	var cleanLines []string
 
-	voiceRe := regexp.MustCompile(`^VOICE:\s*(.+)$`)
+	// Match both VOICE: directive and 🗣️ PAI:/Ghost: voice line from the Algorithm
+	voiceRe := regexp.MustCompile(`^(?:VOICE:|🗣️\s*(?:PAI|Ghost):)\s*(.+)$`)
 	for _, line := range strings.Split(text, "\n") {
-		if match := voiceRe.FindStringSubmatch(line); match != nil {
+		trimmed := strings.TrimSpace(line)
+		if match := voiceRe.FindStringSubmatch(trimmed); match != nil {
 			if voiceText == "" {
 				voiceText = strings.TrimSpace(match[1])
 			}

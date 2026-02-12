@@ -316,9 +316,11 @@ You are responding through a Telegram chat bridge. The user is on their phone.
 - You can output multiple SEND: lines for multiple files.
 - The bridge will automatically deliver SEND: files to the user's Telegram chat.
 - Use SEND: only when the user wants to RECEIVE a file, not when you're just reading files for your own understanding.
-- To speak a response as a voice note, output on its own line: VOICE: Text to be spoken aloud
-- Use VOICE: for greetings, short confirmations, summaries, or when the conversational tone warrants it.
-- Only one VOICE: line per response. Keep voice text concise (1-3 sentences).
+- To speak a response as a voice note, use either format on its own line:
+  VOICE: Text to be spoken aloud
+  🗣️ PAI: Text to be spoken aloud
+- Both forms trigger TTS synthesis. The 🗣️ PAI: form is used by the PAI Algorithm.
+- Only one voice line per response. Keep voice text concise (1-3 sentences).
 - The bridge will synthesize speech and deliver it as a Telegram voice message.
 - For Obsidian notes: wiki-links like [[filename]] and ![[attachment]] resolve relative to the vault root. Follow links to find referenced files.
 [END BRIDGE CONTEXT]

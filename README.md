@@ -54,8 +54,8 @@ The bridge supports text-to-speech via ElevenLabs, delivered as Telegram voice n
 
 ### How It Works
 
-1. Claude includes `VOICE: Hello, here's a quick summary.` on its own line in a response
-2. The bridge extracts the VOICE: directive and strips it from the visible text
+1. Claude includes a voice line on its own line — either `VOICE: Hello!` or `🗣️ PAI: Hello!`
+2. The bridge extracts the voice line and strips it from the visible text
 3. Calls ElevenLabs TTS API → receives MP3 audio
 4. Converts MP3 → OGG/OPUS via `ffmpeg` (required for Telegram inline voice playback)
 5. Sends via Telegram `sendVoice` API → user hears the voice note inline
@@ -221,6 +221,7 @@ Claude uses special directives to trigger bridge actions:
 |-----------|--------|
 | `SEND: /path/to/file` | Bridge delivers the file to the Telegram chat (photo or document) |
 | `VOICE: Text to speak` | Bridge synthesizes speech via ElevenLabs and sends as a voice note |
+| `🗣️ PAI: Text to speak` | Same as VOICE: — used by the PAI Algorithm's voice line |
 
 ## Cost
 
