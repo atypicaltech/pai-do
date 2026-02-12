@@ -142,6 +142,9 @@ write_files:
         useradd --system --shell /bin/bash --home-dir /home/pai --create-home pai
         log "Created pai user"
       fi
+      # Fix ownership — cloud-init write_files may create /home/pai as root
+      # before useradd runs, so --create-home skips chown on existing dir
+      chown pai:pai /home/pai
 
       # Wait for DO volume to be attached (Terraform attaches after droplet creation)
       VOLUME_DEV="/dev/disk/by-id/scsi-0DO_Volume_${volume_name}"
