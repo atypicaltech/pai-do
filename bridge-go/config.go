@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -163,7 +164,9 @@ func jsonIntNested(m map[string]json.RawMessage, section, key string, def int) i
 	}
 	if v, ok := nested[key]; ok {
 		var i int
-		if json.Unmarshal(v, &i) == nil {
+		if err := json.Unmarshal(v, &i); err != nil {
+			log.Printf("[PAI Config] Warning: %s.%s exists but failed to parse as int: %v (using default: %d)", section, key, err, def)
+		} else {
 			return i
 		}
 	}
@@ -177,7 +180,9 @@ func jsonStringNested(m map[string]json.RawMessage, section, key, def string) st
 	}
 	if v, ok := nested[key]; ok {
 		var s string
-		if json.Unmarshal(v, &s) == nil {
+		if err := json.Unmarshal(v, &s); err != nil {
+			log.Printf("[PAI Config] Warning: %s.%s exists but failed to parse as string: %v (using default: %q)", section, key, err, def)
+		} else {
 			return s
 		}
 	}
@@ -191,7 +196,9 @@ func jsonBoolNested(m map[string]json.RawMessage, section, key string, def bool)
 	}
 	if v, ok := nested[key]; ok {
 		var b bool
-		if json.Unmarshal(v, &b) == nil {
+		if err := json.Unmarshal(v, &b); err != nil {
+			log.Printf("[PAI Config] Warning: %s.%s exists but failed to parse as bool: %v (using default: %v)", section, key, err, def)
+		} else {
 			return b
 		}
 	}

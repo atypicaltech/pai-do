@@ -225,7 +225,6 @@ write_files:
       fi
 
       log "Setup complete - access via Telegram bot"
-      rm -f /root/setup-pai.sh
 
 runcmd:
   # Setup fail2ban

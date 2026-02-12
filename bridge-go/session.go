@@ -44,12 +44,13 @@ type MessageResult struct {
 }
 
 type SessionManager struct {
-	mu       sync.RWMutex
-	sessions map[string]*Session
-	procs    map[string]context.CancelFunc
-	config   *Config
-	stateDir string
-	memory   *MemoryManager
+	mu            sync.RWMutex
+	sessions      map[string]*Session
+	procs         map[string]context.CancelFunc
+	config        *Config
+	stateDir      string
+	memory        *MemoryManager
+	resetLocation *time.Location
 }
 
 func NewSessionManager(cfg *Config, memory *MemoryManager) *SessionManager {
@@ -60,12 +61,19 @@ func NewSessionManager(cfg *Config, memory *MemoryManager) *SessionManager {
 	}
 	stateDir := filepath.Join(paiDir, "skills/TelegramBridge/state")
 
+	loc, err := time.LoadLocation(cfg.Sessions.Timezone)
+	if err != nil {
+		log.Printf("[PAI Bridge] Invalid timezone %q, falling back to UTC: %v", cfg.Sessions.Timezone, err)
+		loc = time.UTC
+	}
+
 	sm := &SessionManager{
-		sessions: make(map[string]*Session),
-		procs:    make(map[string]context.CancelFunc),
-		config:   cfg,
-		stateDir: stateDir,
-		memory:   memory,
+		sessions:      make(map[string]*Session),
+		procs:         make(map[string]context.CancelFunc),
+		config:        cfg,
+		stateDir:      stateDir,
+		memory:        memory,
+		resetLocation: loc,
 	}
 	sm.loadFromDisk()
 	return sm
@@ -239,11 +247,7 @@ func (sm *SessionManager) CleanStale() int {
 	resetHour := sm.config.Sessions.ResetHour
 	dailyResetActive := false
 	if resetHour >= 0 {
-		loc, err := time.LoadLocation(sm.config.Sessions.Timezone)
-		if err != nil {
-			loc = time.UTC
-		}
-		currentHour := time.Now().In(loc).Hour()
+		currentHour := time.Now().In(sm.resetLocation).Hour()
 		dailyResetActive = currentHour == resetHour
 	}
 
@@ -313,6 +317,17 @@ func (sm *SessionManager) SendMessage(userID string, text string, attachment *At
 	sm.mu.Lock()
 	session, ok := sm.sessions[userID]
 	if !ok {
+		// Enforce concurrency limit before creating a new session
+		active := 0
+		for _, s := range sm.sessions {
+			if s.Status != "idle" {
+				active++
+			}
+		}
+		if active >= sm.config.Sessions.MaxConcurrent {
+			sm.mu.Unlock()
+			return nil, fmt.Errorf("Max concurrent sessions reached. Use /clear to end your session first.")
+		}
 		session = &Session{
 			ID:             uuid.New().String(),
 			UserID:         userID,

@@ -162,15 +162,18 @@ func (mm *MemoryManager) FlushSession(userID, sessionID, model string) {
 	cmd.Env = os.Environ()
 
 	output, err := cmd.Output()
-	if err != nil {
-		log.Printf("[PAI Memory] Flush failed for %s: %v", sessionID[:8], err)
-		return
-	}
-
 	summary := strings.TrimSpace(string(output))
-	if summary == "" {
-		log.Printf("[PAI Memory] Empty summary for %s, skipping write", sessionID[:8])
-		return
+
+	if err != nil || summary == "" {
+		if err != nil {
+			log.Printf("[PAI Memory] Claude summarization failed for %s: %v — writing raw fallback", sessionID[:8], err)
+		} else {
+			log.Printf("[PAI Memory] Empty summary for %s — writing raw fallback", sessionID[:8])
+		}
+		summary = mm.rawFallbackSummary(conversationLog)
+		if summary == "" {
+			return
+		}
 	}
 
 	// Write the summary file
@@ -202,6 +205,35 @@ func (mm *MemoryManager) FlushSession(userID, sessionID, model string) {
 			break
 		}
 	}
+}
+
+// rawFallbackSummary extracts the last few turns from a conversation log
+// as a fallback when Claude summarization fails.
+func (mm *MemoryManager) rawFallbackSummary(conversationLog string) string {
+	lines := strings.Split(strings.TrimSpace(conversationLog), "\n\n")
+	// Take last 6 turns (3 exchanges)
+	start := 0
+	if len(lines) > 6 {
+		start = len(lines) - 6
+	}
+	recent := lines[start:]
+
+	var sb strings.Builder
+	sb.WriteString("## Summary (raw — summarization failed)\n")
+	for _, line := range recent {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		// Truncate long turns
+		if len(trimmed) > 300 {
+			trimmed = trimmed[:300] + "..."
+		}
+		sb.WriteString("- ")
+		sb.WriteString(trimmed)
+		sb.WriteString("\n")
+	}
+	return sb.String()
 }
 
 // GetRecentContext reads the most recent summary files for a user and
