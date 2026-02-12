@@ -56,12 +56,13 @@ func main() {
 		}
 	}()
 
-	// Stale session cleanup
+	// Stale session cleanup + rate limiter pruning
 	go func() {
 		ticker := time.NewTicker(60 * time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
 			sessions.CleanStale()
+			bot.cleanRateMap()
 		}
 	}()
 

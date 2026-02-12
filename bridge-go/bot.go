@@ -141,6 +141,19 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message, userID string) {
 			home, _ := os.UserHomeDir()
 			dir = filepath.Join(home, dir[2:])
 		}
+		// Resolve symlinks for comparison (~/projects -> /mnt/pai-data/projects)
+		resolvedDir, err := filepath.EvalSymlinks(dir)
+		if err != nil {
+			resolvedDir = dir
+		}
+		resolvedDefault, err := filepath.EvalSymlinks(b.config.Sessions.DefaultWorkDir)
+		if err != nil {
+			resolvedDefault = b.config.Sessions.DefaultWorkDir
+		}
+		if !strings.HasPrefix(resolvedDir, resolvedDefault) && !strings.HasPrefix(resolvedDir, "/mnt/pai-data") {
+			b.send(chatID, fmt.Sprintf("Path not allowed. Must be under %s or /mnt/pai-data.", b.config.Sessions.DefaultWorkDir))
+			return
+		}
 		session := b.sessions.GetSession(userID)
 		if session == nil {
 			session = b.sessions.CreateSession(userID, fmt.Sprintf("%d", chatID))
@@ -400,6 +413,28 @@ func (b *Bot) isRateLimited(userID string) bool {
 	return len(recent) > b.config.Security.RateLimitPerMinute
 }
 
+// cleanRateMap removes stale entries from the rate limiter map.
+func (b *Bot) cleanRateMap() {
+	b.rateMu.Lock()
+	defer b.rateMu.Unlock()
+
+	now := time.Now().UnixMilli()
+	window := int64(60_000)
+	for userID, timestamps := range b.rateMap {
+		var recent []int64
+		for _, t := range timestamps {
+			if now-t < window {
+				recent = append(recent, t)
+			}
+		}
+		if len(recent) == 0 {
+			delete(b.rateMap, userID)
+		} else {
+			b.rateMap[userID] = recent
+		}
+	}
+}
+
 func (b *Bot) send(chatID int64, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
 	b.api.Send(msg)
@@ -460,13 +495,17 @@ func extractFilePaths(text string) []string {
 	return paths
 }
 
+const maxDownloadSize = 50 * 1024 * 1024 // 50MB
+
+var httpClient = &http.Client{Timeout: 30 * time.Second}
+
 func downloadFile(url string) ([]byte, error) {
-	resp, err := http.Get(url)
+	resp, err := httpClient.Get(url)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	return io.ReadAll(resp.Body)
+	return io.ReadAll(io.LimitReader(resp.Body, maxDownloadSize))
 }
 
 func isTextExt(ext string) bool {
