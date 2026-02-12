@@ -111,6 +111,7 @@ write_files:
     permissions: '0700'
     content: |
       #!/bin/bash
+      set -euo pipefail
       export HOME=/root
       export PATH="$PATH:/usr/local/bin:/root/.local/bin"
       LOG=/var/log/pai-setup.log
@@ -186,21 +187,18 @@ write_files:
       export PATH="$PATH:/root/.local/bin"
       hash -r
 
-      CLAUDE_PATH=$(which claude 2>/dev/null || echo "")
-      if [ -z "$CLAUDE_PATH" ]; then
+      CLAUDE_PATH=$(which claude 2>/dev/null) || {
         log "ERROR: Claude Code CLI not found after install"
         exit 1
-      fi
-      log "Claude Code installed at $CLAUDE_PATH ($(claude --version 2>/dev/null))"
+      }
+      CLAUDE_VERSION=$(claude --version 2>/dev/null || echo "unknown")
+      log "Claude Code installed at $CLAUDE_PATH ($CLAUDE_VERSION)"
 
       # 2. Download pre-built PAI Bridge binary from latest release
       log "Downloading PAI Bridge binary..."
       curl -fsSL -o /usr/local/bin/pai-bridge \
-        https://github.com/atypicaltech/pai-do/releases/latest/download/pai-bridge
-      if [ $? -ne 0 ]; then
-        log "ERROR: Failed to download pai-bridge binary"
-        exit 1
-      fi
+        https://github.com/atypicaltech/pai-do/releases/latest/download/pai-bridge \
+        || { log "ERROR: Failed to download pai-bridge binary"; exit 1; }
       chmod +x /usr/local/bin/pai-bridge
       log "PAI Bridge installed at /usr/local/bin/pai-bridge"
 
