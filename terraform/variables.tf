@@ -47,3 +47,11 @@ variable "tailscale_auth_key" {
   type        = string
   sensitive   = true
 }
+
+# ElevenLabs TTS
+variable "elevenlabs_api_key" {
+  description = "ElevenLabs API key for TTS voice synthesis"
+  type        = string
+  sensitive   = true
+  default     = ""
+}

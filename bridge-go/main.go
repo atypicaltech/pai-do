@@ -47,7 +47,8 @@ func main() {
 	sessions := NewSessionManager(cfg, memory, claudeCredential)
 
 	// Telegram bot
-	bot, err := NewBot(cfg, sessions)
+	elevenLabsKey := os.Getenv("ELEVENLABS_API_KEY")
+	bot, err := NewBot(cfg, sessions, elevenLabsKey)
 	if err != nil {
 		log.Fatalf("[PAI Bridge] Failed to create bot: %v", err)
 	}

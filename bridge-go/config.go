@@ -18,6 +18,7 @@ type Config struct {
 	Response     ResponseConfig
 	Server       ServerConfig
 	Memory       MemoryConfig
+	Voice        VoiceConfig
 }
 
 type SessionConfig struct {
@@ -48,6 +49,12 @@ type MemoryConfig struct {
 	BasePath      string
 	MaxSummaries  int
 	RetentionDays int // Base retention: JSONL=1x, daily=2x, summaries=6x. 0 to disable.
+}
+
+type VoiceConfig struct {
+	Enabled bool
+	VoiceID string
+	Model   string
 }
 
 func LoadConfig() (*Config, error) {
@@ -113,6 +120,11 @@ func LoadConfig() (*Config, error) {
 			BasePath:      resolveHome(jsonStringNested(tb, "memory", "base_path", "/mnt/pai-data/memory")),
 			MaxSummaries:  jsonIntNested(tb, "memory", "max_summaries", 5),
 			RetentionDays: jsonIntNested(tb, "memory", "retention_days", 14),
+		},
+		Voice: VoiceConfig{
+			Enabled: jsonBoolNested(tb, "voice", "enabled", false),
+			VoiceID: jsonStringNested(tb, "voice", "voice_id", "pDxcmDdBPmpAPjBko2mF"),
+			Model:   jsonStringNested(tb, "voice", "model", "eleven_v2_5_flash"),
 		},
 	}
 

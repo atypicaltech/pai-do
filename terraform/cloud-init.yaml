@@ -1,5 +1,5 @@
 #cloud-config
-# PAI infrastructure - v2026.02.8
+# PAI infrastructure - v2026.02.9
 package_update: true
 package_upgrade: true
 
@@ -8,6 +8,7 @@ packages:
   - fail2ban
   - curl
   - jq
+  - ffmpeg
 
 write_files:
   # Secrets file - root-only, consumed by systemd EnvironmentFile
@@ -18,6 +19,7 @@ write_files:
     content: |
       CLAUDE_CODE_OAUTH_TOKEN=${claude_oauth_token}
       TELEGRAM_BOT_TOKEN=${telegram_bot_token}
+      ELEVENLABS_API_KEY=${elevenlabs_api_key}
 
   # Fail2ban jail config
   - path: /etc/fail2ban/jail.local
@@ -78,6 +80,11 @@ write_files:
           },
           "server": {
             "port": 7777
+          },
+          "voice": {
+            "enabled": true,
+            "voice_id": "pDxcmDdBPmpAPjBko2mF",
+            "model": "eleven_v2_5_flash"
           }
         }
       }

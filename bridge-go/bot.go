@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -21,27 +24,35 @@ var imageExtRe = regexp.MustCompile(`(?i)\.(png|jpe?g|gif|webp)$`)
 
 
 type Bot struct {
-	api        *tgbotapi.BotAPI
-	config     *Config
-	sessions   *SessionManager
-	rateMap    map[string][]int64
-	rateMu     sync.Mutex
-	lastPollAt atomic.Int64 // unix milli of last successful poll cycle
-	stopCh     chan struct{}
+	api            *tgbotapi.BotAPI
+	config         *Config
+	sessions       *SessionManager
+	elevenLabsKey  string
+	rateMap        map[string][]int64
+	rateMu         sync.Mutex
+	lastPollAt     atomic.Int64 // unix milli of last successful poll cycle
+	stopCh         chan struct{}
 }
 
-func NewBot(cfg *Config, sessions *SessionManager) (*Bot, error) {
+func NewBot(cfg *Config, sessions *SessionManager, elevenLabsKey string) (*Bot, error) {
 	api, err := tgbotapi.NewBotAPI(cfg.BotToken)
 	if err != nil {
 		return nil, fmt.Errorf("telegram bot init: %w", err)
 	}
 
+	if cfg.Voice.Enabled && elevenLabsKey != "" {
+		log.Printf("[PAI Bridge] Voice enabled (voice_id=%s, model=%s)", cfg.Voice.VoiceID, cfg.Voice.Model)
+	} else if cfg.Voice.Enabled {
+		log.Printf("[PAI Bridge] Voice enabled in config but ELEVENLABS_API_KEY not set — voice disabled")
+	}
+
 	return &Bot{
-		api:      api,
-		config:   cfg,
-		sessions: sessions,
-		rateMap:  make(map[string][]int64),
-		stopCh:   make(chan struct{}),
+		api:           api,
+		config:        cfg,
+		sessions:      sessions,
+		elevenLabsKey: elevenLabsKey,
+		rateMap:       make(map[string][]int64),
+		stopCh:        make(chan struct{}),
 	}, nil
 }
 
@@ -344,8 +355,9 @@ func (b *Bot) handleMessage(chatID int64, userID, text string, attachment *Attac
 		return
 	}
 
-	// Extract SEND: directives
+	// Extract SEND: and VOICE: directives
 	cleanText, sendPaths := extractSendDirectives(result.Text)
+	cleanText, voiceText := extractVoiceDirective(cleanText)
 
 	// Parse and format response
 	chunks := parseResponse(cleanText, b.config.Response.Format)
@@ -358,6 +370,13 @@ func (b *Bot) handleMessage(chatID int64, userID, text string, attachment *Attac
 			log.Printf("[PAI Bridge] HTML parse failed, falling back: %v", err)
 			msg.ParseMode = ""
 			b.api.Send(msg)
+		}
+	}
+
+	// Synthesize and send voice note if VOICE: directive present
+	if voiceText != "" && b.config.Voice.Enabled && b.elevenLabsKey != "" {
+		if err := b.synthesizeAndSendVoice(chatID, voiceText); err != nil {
+			log.Printf("[PAI Bridge] Voice synthesis failed: %v", err)
 		}
 	}
 
@@ -483,6 +502,103 @@ func extractSendDirectives(text string) (string, []string) {
 	return strings.Join(cleanLines, "\n"), sendPaths
 }
 
+func extractVoiceDirective(text string) (string, string) {
+	var voiceText string
+	var cleanLines []string
+
+	voiceRe := regexp.MustCompile(`^VOICE:\s*(.+)$`)
+	for _, line := range strings.Split(text, "\n") {
+		if match := voiceRe.FindStringSubmatch(line); match != nil {
+			if voiceText == "" {
+				voiceText = strings.TrimSpace(match[1])
+			}
+		} else {
+			cleanLines = append(cleanLines, line)
+		}
+	}
+
+	return strings.Join(cleanLines, "\n"), voiceText
+}
+
+func (b *Bot) synthesizeAndSendVoice(chatID int64, text string) error {
+	// Call ElevenLabs TTS API
+	url := fmt.Sprintf("https://api.elevenlabs.io/v1/text-to-speech/%s", b.config.Voice.VoiceID)
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"text":     text,
+		"model_id": b.config.Voice.Model,
+	})
+
+	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("xi-api-key", b.elevenLabsKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "audio/mpeg")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("elevenlabs request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return fmt.Errorf("elevenlabs returned %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	mp3Data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read mp3: %w", err)
+	}
+
+	// Write MP3 to temp file
+	mp3File, err := os.CreateTemp("", "pai-voice-*.mp3")
+	if err != nil {
+		return fmt.Errorf("create temp mp3: %w", err)
+	}
+	defer os.Remove(mp3File.Name())
+
+	if _, err := mp3File.Write(mp3Data); err != nil {
+		mp3File.Close()
+		return fmt.Errorf("write mp3: %w", err)
+	}
+	mp3File.Close()
+
+	// Convert MP3 to OGG/OPUS via ffmpeg
+	oggPath := mp3File.Name() + ".ogg"
+	defer os.Remove(oggPath)
+
+	cmd := exec.Command("ffmpeg", "-i", mp3File.Name(), "-c:a", "libopus", "-b:a", "64k", "-y", oggPath)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("ffmpeg convert: %w (%s)", err, string(output))
+	}
+
+	oggData, err := os.ReadFile(oggPath)
+	if err != nil {
+		return fmt.Errorf("read ogg: %w", err)
+	}
+
+	// Send as Telegram voice note
+	voice := tgbotapi.NewVoice(chatID, tgbotapi.FileBytes{
+		Name:  "voice.ogg",
+		Bytes: oggData,
+	})
+	if _, err := b.api.Send(voice); err != nil {
+		return fmt.Errorf("send voice: %w", err)
+	}
+
+	log.Printf("[PAI Bridge] Voice note sent (%d bytes OGG, text: %q)", len(oggData), truncate(text, 50))
+	return nil
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
+}
 
 const maxDownloadSize = 50 * 1024 * 1024 // 50MB
 

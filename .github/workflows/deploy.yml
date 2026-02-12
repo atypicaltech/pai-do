@@ -40,6 +40,7 @@ jobs:
           TF_VAR_telegram_bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TF_VAR_telegram_allowed_users: ${{ secrets.TELEGRAM_ALLOWED_USERS }}
           TF_VAR_tailscale_auth_key: ${{ secrets.TAILSCALE_AUTH_KEY }}
+          TF_VAR_elevenlabs_api_key: ${{ secrets.ELEVENLABS_API_KEY }}
 
       - name: OpenTofu Apply
         if: github.ref == 'refs/heads/main'

@@ -35,6 +35,7 @@ resource "digitalocean_droplet" "pai" {
     telegram_bot_token     = var.telegram_bot_token
     telegram_allowed_users = var.telegram_allowed_users
     tailscale_auth_key     = var.tailscale_auth_key
+    elevenlabs_api_key     = var.elevenlabs_api_key
     volume_name            = digitalocean_volume.pai_data.name
   })
 }
