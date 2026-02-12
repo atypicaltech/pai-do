@@ -15,8 +15,9 @@ import (
 )
 
 type MemoryManager struct {
-	basePath string
-	enabled  bool
+	basePath      string
+	enabled       bool
+	retentionDays int
 }
 
 type ConversationTurn struct {
@@ -28,8 +29,9 @@ type ConversationTurn struct {
 
 func NewMemoryManager(cfg *Config) *MemoryManager {
 	return &MemoryManager{
-		basePath: cfg.Memory.BasePath,
-		enabled:  cfg.Memory.Enabled,
+		basePath:      cfg.Memory.BasePath,
+		enabled:       cfg.Memory.Enabled,
+		retentionDays: cfg.Memory.RetentionDays,
 	}
 }
 
@@ -318,6 +320,50 @@ func (mm *MemoryManager) AppendDailyNote(userID, note string) {
 
 	ts := time.Now().Format("15:04")
 	fmt.Fprintf(f, "- [%s] %s\n", ts, strings.TrimSpace(note))
+}
+
+// CleanOldFiles removes memory files past their retention period.
+// Retention is proportional to retentionDays: JSONL=1x, daily=2x, summaries=6x.
+func (mm *MemoryManager) CleanOldFiles() {
+	if !mm.enabled || mm.retentionDays <= 0 {
+		return
+	}
+
+	now := time.Now()
+	cleaned := 0
+
+	// Conversation JSONL logs — delete at 1x retention (default 14 days)
+	cleaned += mm.cleanDir(filepath.Join(mm.basePath, "conversations"), now, mm.retentionDays)
+
+	// Daily notes — delete at 2x retention (default 28 days)
+	cleaned += mm.cleanDir(filepath.Join(mm.basePath, "daily"), now, mm.retentionDays*2)
+
+	// Summaries — delete at 6x retention (default 84 days)
+	cleaned += mm.cleanDir(filepath.Join(mm.basePath, "summaries"), now, mm.retentionDays*6)
+
+	if cleaned > 0 {
+		log.Printf("[PAI Memory] Retention cleanup: removed %d old file(s)", cleaned)
+	}
+}
+
+// cleanDir walks a directory tree and deletes regular files older than maxDays.
+func (mm *MemoryManager) cleanDir(dir string, now time.Time, maxDays int) int {
+	cutoff := now.AddDate(0, 0, -maxDays)
+	cleaned := 0
+
+	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		if info.ModTime().Before(cutoff) {
+			if err := os.Remove(path); err == nil {
+				cleaned++
+			}
+		}
+		return nil
+	})
+
+	return cleaned
 }
 
 // GetDailyNotes reads today's and yesterday's daily notes for a user.

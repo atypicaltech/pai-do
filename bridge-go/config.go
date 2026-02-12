@@ -44,9 +44,10 @@ type ServerConfig struct {
 }
 
 type MemoryConfig struct {
-	Enabled      bool
-	BasePath     string
-	MaxSummaries int
+	Enabled       bool
+	BasePath      string
+	MaxSummaries  int
+	RetentionDays int // Base retention: JSONL=1x, daily=2x, summaries=6x. 0 to disable.
 }
 
 func LoadConfig() (*Config, error) {
@@ -108,9 +109,10 @@ func LoadConfig() (*Config, error) {
 			Port: jsonIntNested(tb, "server", "port", 7777),
 		},
 		Memory: MemoryConfig{
-			Enabled:      jsonBoolNested(tb, "memory", "enabled", true),
-			BasePath:     resolveHome(jsonStringNested(tb, "memory", "base_path", "/mnt/pai-data/memory")),
-			MaxSummaries: jsonIntNested(tb, "memory", "max_summaries", 5),
+			Enabled:       jsonBoolNested(tb, "memory", "enabled", true),
+			BasePath:      resolveHome(jsonStringNested(tb, "memory", "base_path", "/mnt/pai-data/memory")),
+			MaxSummaries:  jsonIntNested(tb, "memory", "max_summaries", 5),
+			RetentionDays: jsonIntNested(tb, "memory", "retention_days", 14),
 		},
 	}
 

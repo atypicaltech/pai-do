@@ -298,6 +298,11 @@ func (sm *SessionManager) CleanStale() int {
 		go sm.memory.FlushSession(sf.userID, sf.sessionID, sf.model)
 	}
 
+	// Run retention cleanup once per day during the reset window
+	if dailyResetActive {
+		go sm.memory.CleanOldFiles()
+	}
+
 	return cleaned
 }
 
