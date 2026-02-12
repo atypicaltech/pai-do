@@ -16,6 +16,7 @@ type Config struct {
 	Security     SecurityConfig
 	Response     ResponseConfig
 	Server       ServerConfig
+	Memory       MemoryConfig
 }
 
 type SessionConfig struct {
@@ -23,6 +24,7 @@ type SessionConfig struct {
 	MaxConcurrent  int
 	DefaultWorkDir string
 	DefaultModel   string
+	ResetHour      int // Hour of day (0-23) for daily session reset. -1 to disable.
 }
 
 type SecurityConfig struct {
@@ -37,6 +39,12 @@ type ResponseConfig struct {
 
 type ServerConfig struct {
 	Port int
+}
+
+type MemoryConfig struct {
+	Enabled      bool
+	BasePath     string
+	MaxSummaries int
 }
 
 func LoadConfig() (*Config, error) {
@@ -79,10 +87,11 @@ func LoadConfig() (*Config, error) {
 		BotToken:     botToken,
 		AllowedUsers: jsonStringSlice(tb, "allowed_users"),
 		Sessions: SessionConfig{
-			TimeoutMinutes: jsonIntNested(tb, "sessions", "timeout_minutes", 30),
+			TimeoutMinutes: jsonIntNested(tb, "sessions", "timeout_minutes", 240),
 			MaxConcurrent:  jsonIntNested(tb, "sessions", "max_concurrent", 2),
 			DefaultWorkDir: resolveHome(jsonStringNested(tb, "sessions", "default_work_dir", "~/projects")),
 			DefaultModel:   jsonStringNested(tb, "sessions", "default_model", "claude-sonnet-4-5-20250929"),
+			ResetHour:      jsonIntNested(tb, "sessions", "reset_hour", 4),
 		},
 		Security: SecurityConfig{
 			RequirePassphrase:  jsonBoolNested(tb, "security", "require_passphrase", false),
@@ -94,6 +103,11 @@ func LoadConfig() (*Config, error) {
 		},
 		Server: ServerConfig{
 			Port: jsonIntNested(tb, "server", "port", 7777),
+		},
+		Memory: MemoryConfig{
+			Enabled:      jsonBoolNested(tb, "memory", "enabled", true),
+			BasePath:     resolveHome(jsonStringNested(tb, "memory", "base_path", "/mnt/pai-data/memory")),
+			MaxSummaries: jsonIntNested(tb, "memory", "max_summaries", 5),
 		},
 	}
 

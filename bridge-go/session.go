@@ -49,9 +49,10 @@ type SessionManager struct {
 	procs    map[string]context.CancelFunc
 	config   *Config
 	stateDir string
+	memory   *MemoryManager
 }
 
-func NewSessionManager(cfg *Config) *SessionManager {
+func NewSessionManager(cfg *Config, memory *MemoryManager) *SessionManager {
 	home, _ := os.UserHomeDir()
 	paiDir := os.Getenv("PAI_DIR")
 	if paiDir == "" {
@@ -64,6 +65,7 @@ func NewSessionManager(cfg *Config) *SessionManager {
 		procs:    make(map[string]context.CancelFunc),
 		config:   cfg,
 		stateDir: stateDir,
+		memory:   memory,
 	}
 	sm.loadFromDisk()
 	return sm
@@ -154,10 +156,10 @@ func (sm *SessionManager) SetWorkDir(userID, dir string) {
 
 func (sm *SessionManager) KillSession(userID string) bool {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
 
 	s, ok := sm.sessions[userID]
 	if !ok {
+		sm.mu.Unlock()
 		return false
 	}
 
@@ -166,8 +168,19 @@ func (sm *SessionManager) KillSession(userID string) bool {
 		delete(sm.procs, s.ID)
 	}
 
+	sessionID := s.ID
+	model := s.Model
+	msgCount := s.MessageCount
+
 	delete(sm.sessions, userID)
 	sm.saveToDisk()
+	sm.mu.Unlock()
+
+	// Flush asynchronously if there were messages
+	if msgCount > 0 {
+		go sm.memory.FlushSession(userID, sessionID, model)
+	}
+
 	return true
 }
 
@@ -182,19 +195,82 @@ func (sm *SessionManager) ListSessions() []*Session {
 	return list
 }
 
+type staleSession struct {
+	userID    string
+	sessionID string
+	model     string
+}
+
+// FlushAll synchronously flushes all active sessions with messages.
+// Called during graceful shutdown to preserve context before exit.
+func (sm *SessionManager) FlushAll() {
+	sm.mu.RLock()
+	var toFlush []staleSession
+	for userID, s := range sm.sessions {
+		if s.MessageCount > 0 {
+			toFlush = append(toFlush, staleSession{
+				userID:    userID,
+				sessionID: s.ID,
+				model:     s.Model,
+			})
+		}
+	}
+	sm.mu.RUnlock()
+
+	if len(toFlush) == 0 {
+		return
+	}
+
+	log.Printf("[PAI Bridge] Flushing %d session(s) before shutdown...", len(toFlush))
+	for _, sf := range toFlush {
+		sm.memory.FlushSession(sf.userID, sf.sessionID, sf.model)
+	}
+	log.Printf("[PAI Bridge] Shutdown flush complete")
+}
+
 func (sm *SessionManager) CleanStale() int {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
 
 	timeout := int64(sm.config.Sessions.TimeoutMinutes) * 60_000
 	now := time.Now().UnixMilli()
 	cleaned := 0
 
+	// Daily reset check: if current hour matches reset_hour and session is idle 5+ min
+	currentHour := time.Now().Hour()
+	resetHour := sm.config.Sessions.ResetHour
+	dailyResetActive := resetHour >= 0 && currentHour == resetHour
+
+	var toFlush []staleSession
+
 	for userID, s := range sm.sessions {
-		if now-s.LastActivityAt > timeout && s.Status != "busy" {
+		if s.Status == "busy" {
+			continue
+		}
+
+		idleMs := now - s.LastActivityAt
+		shouldClean := false
+
+		if idleMs > timeout {
+			// Standard idle timeout
+			shouldClean = true
+		} else if dailyResetActive && idleMs > 5*60_000 {
+			// Daily reset: clean if idle 5+ min during reset hour
+			shouldClean = true
+			log.Printf("[PAI Bridge] Daily reset (hour=%d) cleaning session %s", resetHour, s.ID[:8])
+		}
+
+		if shouldClean {
 			if cancel, exists := sm.procs[s.ID]; exists {
 				cancel()
 				delete(sm.procs, s.ID)
+			}
+			// Collect session info for flush before deleting
+			if s.MessageCount > 0 {
+				toFlush = append(toFlush, staleSession{
+					userID:    userID,
+					sessionID: s.ID,
+					model:     s.Model,
+				})
 			}
 			delete(sm.sessions, userID)
 			cleaned++
@@ -204,6 +280,13 @@ func (sm *SessionManager) CleanStale() int {
 	if cleaned > 0 {
 		sm.saveToDisk()
 	}
+	sm.mu.Unlock()
+
+	// Flush sessions asynchronously (outside the lock)
+	for _, sf := range toFlush {
+		go sm.memory.FlushSession(sf.userID, sf.sessionID, sf.model)
+	}
+
 	return cleaned
 }
 
@@ -252,11 +335,13 @@ func (sm *SessionManager) SendMessage(userID string, text string, attachment *At
 		claudePath = resolved
 	}
 
-	// Prepend bridge context on first message
+	// Prepend bridge context + previous session summaries + daily notes on first message
 	isFirst := session.ClaudeSessionID == ""
 	messageText := text
 	if isFirst {
-		messageText = bridgeContext + text
+		recentContext := sm.memory.GetRecentContext(userID, sm.config.Memory.MaxSummaries)
+		dailyNotes := sm.memory.GetDailyNotes(userID)
+		messageText = bridgeContext + recentContext + dailyNotes + text
 	}
 
 	// Inline text-file attachments
@@ -285,6 +370,9 @@ func (sm *SessionManager) SendMessage(userID string, text string, attachment *At
 	if hasResume {
 		args = append(args, "--resume", session.ClaudeSessionID)
 	}
+
+	// Log the user's message
+	sm.memory.LogTurn(userID, session.ID, "user", text)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 
@@ -443,6 +531,11 @@ func (sm *SessionManager) SendMessage(userID string, text string, attachment *At
 		if stderrText != "" {
 			return nil, fmt.Errorf("Claude exited: %s", strings.TrimSpace(stderrText))
 		}
+	}
+
+	// Log the assistant's response
+	if responseText := fullResponse.String(); responseText != "" {
+		sm.memory.LogTurn(userID, session.ID, "assistant", responseText)
 	}
 
 	return &MessageResult{

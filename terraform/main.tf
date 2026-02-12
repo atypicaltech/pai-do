@@ -43,6 +43,7 @@ resource "digitalocean_droplet" "pai" {
     bot_go                 = file("${path.module}/../bridge-go/bot.go")
     session_go             = file("${path.module}/../bridge-go/session.go")
     format_go              = file("${path.module}/../bridge-go/format.go")
+    memory_go              = file("${path.module}/../bridge-go/memory.go")
   })
 }
 

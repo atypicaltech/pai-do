@@ -22,8 +22,12 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Memory manager
+	memory := NewMemoryManager(cfg)
+	log.Printf("[PAI Bridge] Memory logging enabled=%v, path=%s", cfg.Memory.Enabled, cfg.Memory.BasePath)
+
 	// Session manager
-	sessions := NewSessionManager(cfg)
+	sessions := NewSessionManager(cfg, memory)
 
 	// Telegram bot
 	bot, err := NewBot(cfg, sessions)
@@ -69,6 +73,7 @@ func main() {
 		<-sigCh
 		log.Println("[PAI Bridge] Shutting down...")
 		bot.Stop()
+		sessions.FlushAll()
 		os.Exit(0)
 	}()
 

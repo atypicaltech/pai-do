@@ -52,10 +52,11 @@ write_files:
           "allowed_users": [${telegram_allowed_users}],
           "polling_mode": "long-polling",
           "sessions": {
-            "timeout_minutes": 30,
+            "timeout_minutes": 240,
             "max_concurrent": 2,
             "default_work_dir": "~/projects",
-            "default_model": "claude-opus-4-6"
+            "default_model": "claude-opus-4-6",
+            "reset_hour": 4
           },
           "security": {
             "require_passphrase": false,
@@ -139,6 +140,11 @@ write_files:
   - path: /root/bridge-go/format.go
     content: |
       ${indent(6, format_go)}
+
+  # Bridge source - memory.go
+  - path: /root/bridge-go/memory.go
+    content: |
+      ${indent(6, memory_go)}
 
   # PAI setup script
   - path: /root/setup-pai.sh
@@ -240,6 +246,9 @@ write_files:
 
       # 3. Create state directories on persistent volume
       mkdir -p /root/.claude/skills/TelegramBridge/state
+      mkdir -p /mnt/pai-data/memory/conversations
+      mkdir -p /mnt/pai-data/memory/summaries
+      mkdir -p /mnt/pai-data/memory/daily
 
       # 4. Enable and start the bridge service
       log "Starting PAI Telegram Bridge service..."
