@@ -40,11 +40,17 @@ func main() {
 	startTime := time.Now()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		pollAgo := bot.LastPollSecondsAgo()
+		status := "ok"
+		if pollAgo < 0 || pollAgo > 120 {
+			status = "degraded"
+		}
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"status":    "ok",
-			"service":   "pai-telegram-bridge",
-			"uptime":    time.Since(startTime).Seconds(),
-			"timestamp": time.Now().UTC().Format(time.RFC3339),
+			"status":              status,
+			"service":             "pai-telegram-bridge",
+			"uptime":              time.Since(startTime).Seconds(),
+			"last_poll_seconds_ago": pollAgo,
+			"timestamp":           time.Now().UTC().Format(time.RFC3339),
 		})
 	})
 

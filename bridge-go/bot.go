@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -21,11 +22,12 @@ var imageExtRe = regexp.MustCompile(`(?i)\.(png|jpe?g|gif|webp)$`)
 var fileExtPattern = `png|jpe?g|gif|webp|pdf|csv|txt|md|html|docx|xlsx|json|zip|tar\.gz|svg|mp3|mp4|wav`
 
 type Bot struct {
-	api      *tgbotapi.BotAPI
-	config   *Config
-	sessions *SessionManager
-	rateMap  map[string][]int64
-	rateMu   sync.Mutex
+	api        *tgbotapi.BotAPI
+	config     *Config
+	sessions   *SessionManager
+	rateMap    map[string][]int64
+	rateMu     sync.Mutex
+	lastPollAt atomic.Int64 // unix milli of last successful poll cycle
 }
 
 func NewBot(cfg *Config, sessions *SessionManager) (*Bot, error) {
@@ -59,8 +61,10 @@ func (b *Bot) Start() {
 	updates := b.api.GetUpdatesChan(u)
 
 	log.Println("[PAI Bridge] Bot is running.")
+	b.lastPollAt.Store(time.Now().UnixMilli())
 
 	for update := range updates {
+		b.lastPollAt.Store(time.Now().UnixMilli())
 		if update.Message == nil {
 			continue
 		}
@@ -70,6 +74,15 @@ func (b *Bot) Start() {
 
 func (b *Bot) Stop() {
 	b.api.StopReceivingUpdates()
+}
+
+// LastPollSecondsAgo returns how many seconds since the last successful poll cycle.
+func (b *Bot) LastPollSecondsAgo() float64 {
+	last := b.lastPollAt.Load()
+	if last == 0 {
+		return -1
+	}
+	return float64(time.Now().UnixMilli()-last) / 1000.0
 }
 
 func (b *Bot) handleUpdate(update tgbotapi.Update) {
