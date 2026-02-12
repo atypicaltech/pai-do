@@ -3,6 +3,9 @@ name: Deploy PAI
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   deploy:
     name: Deploy Infrastructure
