@@ -267,5 +267,5 @@ runcmd:
 
   # Block DigitalOcean metadata API - prevents secrets exfiltration via user_data
   # This MUST be the last runcmd entry (after all setup that might need metadata)
-  - iptables -A OUTPUT -d 169.254.169.254 -j REJECT --reject-with icmp-port-unreachable
-  - ip6tables -A OUTPUT -d fd00:ec2::254 -j REJECT --reject-with icmp6-port-unreachable
+  - iptables -I OUTPUT 1 -d 169.254.169.254 -j REJECT --reject-with icmp-port-unreachable
+  - ip6tables -I OUTPUT 1 -d fd00:ec2::254 -j REJECT --reject-with icmp6-port-unreachable
