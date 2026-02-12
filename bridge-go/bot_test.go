@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -159,5 +160,74 @@ func TestExtractSendDirectives(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestIsTextExt(t *testing.T) {
+	textExts := []string{"txt", "md", "csv", "json", "xml", "html", "yml", "yaml",
+		"toml", "ini", "log", "py", "js", "ts", "sh", "rb", "go", "rs",
+		"java", "c", "cpp", "h", "css", "sql"}
+
+	for _, ext := range textExts {
+		if !isTextExt(ext) {
+			t.Errorf("%q should be a text extension", ext)
+		}
+	}
+
+	nonTextExts := []string{"png", "jpg", "gif", "pdf", "zip", "exe", "mp3", "mp4", "bin", ""}
+	for _, ext := range nonTextExts {
+		if isTextExt(ext) {
+			t.Errorf("%q should NOT be a text extension", ext)
+		}
+	}
+}
+
+func TestTruncate(t *testing.T) {
+	tests := []struct {
+		input string
+		n     int
+		want  string
+	}{
+		{"hello", 10, "hello"},
+		{"hello", 5, "hello"},
+		{"hello world", 5, "hello..."},
+		{"", 5, ""},
+		{"ab", 1, "a..."},
+	}
+
+	for _, tt := range tests {
+		got := truncate(tt.input, tt.n)
+		if got != tt.want {
+			t.Errorf("truncate(%q, %d) = %q, want %q", tt.input, tt.n, got, tt.want)
+		}
+	}
+}
+
+func TestImageExtRe(t *testing.T) {
+	matches := []string{"/tmp/photo.png", "/tmp/photo.jpg", "/tmp/photo.jpeg",
+		"/tmp/photo.gif", "/tmp/photo.webp", "/tmp/PHOTO.PNG", "/tmp/photo.JPG"}
+
+	for _, path := range matches {
+		if !imageExtRe.MatchString(path) {
+			t.Errorf("%q should match image regex", path)
+		}
+	}
+
+	nonMatches := []string{"/tmp/file.pdf", "/tmp/file.txt", "/tmp/file.mp4", "/tmp/file"}
+	for _, path := range nonMatches {
+		if imageExtRe.MatchString(path) {
+			t.Errorf("%q should NOT match image regex", path)
+		}
+	}
+}
+
+func TestExtractSendDirectives_HomeTilde(t *testing.T) {
+	_, paths := extractSendDirectives("SEND: ~/documents/file.pdf")
+	if len(paths) != 1 {
+		t.Fatalf("expected 1 path, got %d", len(paths))
+	}
+	// Should be expanded (not start with ~)
+	if strings.HasPrefix(paths[0], "~/") {
+		t.Errorf("path should be expanded: got %q", paths[0])
 	}
 }
