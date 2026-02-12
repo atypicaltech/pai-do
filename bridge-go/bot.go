@@ -19,7 +19,6 @@ import (
 
 var imageExtRe = regexp.MustCompile(`(?i)\.(png|jpe?g|gif|webp)$`)
 
-var fileExtPattern = `png|jpe?g|gif|webp|pdf|csv|txt|md|html|docx|xlsx|json|zip|tar\.gz|svg|mp3|mp4|wav`
 
 type Bot struct {
 	api        *tgbotapi.BotAPI
@@ -362,24 +361,15 @@ func (b *Bot) handleMessage(chatID int64, userID, text string, attachment *Attac
 		}
 	}
 
-	// Collect all file paths (SEND directives + tool_use + text regex)
+	// Only deliver files explicitly requested via SEND: directives
 	seen := make(map[string]bool)
 	var allFiles []string
-	addFile := func(p string) {
+	for _, p := range sendPaths {
 		norm, _ := filepath.Abs(p)
 		if !seen[norm] {
 			seen[norm] = true
 			allFiles = append(allFiles, norm)
 		}
-	}
-	for _, p := range sendPaths {
-		addFile(p)
-	}
-	for _, p := range result.CreatedFiles {
-		addFile(p)
-	}
-	for _, p := range extractFilePaths(cleanText) {
-		addFile(p)
 	}
 
 	// Send files
@@ -493,37 +483,6 @@ func extractSendDirectives(text string) (string, []string) {
 	return strings.Join(cleanLines, "\n"), sendPaths
 }
 
-func extractFilePaths(text string) []string {
-	var paths []string
-	patterns := []*regexp.Regexp{
-		regexp.MustCompile("`((?:~/|/)(?:[^`])+\\.(?:" + fileExtPattern + "))`"),
-		regexp.MustCompile(`["']((?:~/|/)(?:[^"'])+\.(?:` + fileExtPattern + `))["']`),
-		regexp.MustCompile(`(?:^|\s)(/\S+\.(?:` + fileExtPattern + `))`),
-		regexp.MustCompile(`(?:^|\s)(~/\S+\.(?:` + fileExtPattern + `))`),
-	}
-
-	for _, pat := range patterns {
-		for _, match := range pat.FindAllStringSubmatch(text, -1) {
-			p := match[1]
-			if strings.HasPrefix(p, "~/") {
-				home, _ := os.UserHomeDir()
-				p = filepath.Join(home, p[2:])
-			}
-			found := false
-			for _, existing := range paths {
-				if existing == p {
-					found = true
-					break
-				}
-			}
-			if !found {
-				paths = append(paths, p)
-			}
-		}
-	}
-
-	return paths
-}
 
 const maxDownloadSize = 50 * 1024 * 1024 // 50MB
 
