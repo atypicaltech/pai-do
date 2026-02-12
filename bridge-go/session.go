@@ -176,9 +176,9 @@ func (sm *SessionManager) KillSession(userID string) bool {
 	sm.saveToDisk()
 	sm.mu.Unlock()
 
-	// Flush asynchronously if there were messages
+	// Flush synchronously so summary is on disk before user sends next message
 	if msgCount > 0 {
-		go sm.memory.FlushSession(userID, sessionID, model)
+		sm.memory.FlushSession(userID, sessionID, model)
 	}
 
 	return true
@@ -235,10 +235,17 @@ func (sm *SessionManager) CleanStale() int {
 	now := time.Now().UnixMilli()
 	cleaned := 0
 
-	// Daily reset check: if current hour matches reset_hour and session is idle 5+ min
-	currentHour := time.Now().Hour()
+	// Daily reset check: if current hour (in configured timezone) matches reset_hour and session is idle 5+ min
 	resetHour := sm.config.Sessions.ResetHour
-	dailyResetActive := resetHour >= 0 && currentHour == resetHour
+	dailyResetActive := false
+	if resetHour >= 0 {
+		loc, err := time.LoadLocation(sm.config.Sessions.Timezone)
+		if err != nil {
+			loc = time.UTC
+		}
+		currentHour := time.Now().In(loc).Hour()
+		dailyResetActive = currentHour == resetHour
+	}
 
 	var toFlush []staleSession
 

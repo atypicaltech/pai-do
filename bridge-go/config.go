@@ -24,7 +24,8 @@ type SessionConfig struct {
 	MaxConcurrent  int
 	DefaultWorkDir string
 	DefaultModel   string
-	ResetHour      int // Hour of day (0-23) for daily session reset. -1 to disable.
+	ResetHour      int    // Hour of day (0-23) for daily session reset. -1 to disable.
+	Timezone       string // IANA timezone for reset_hour (e.g. "America/New_York"). Defaults to UTC.
 }
 
 type SecurityConfig struct {
@@ -92,6 +93,7 @@ func LoadConfig() (*Config, error) {
 			DefaultWorkDir: resolveHome(jsonStringNested(tb, "sessions", "default_work_dir", "~/projects")),
 			DefaultModel:   jsonStringNested(tb, "sessions", "default_model", "claude-sonnet-4-5-20250929"),
 			ResetHour:      jsonIntNested(tb, "sessions", "reset_hour", 4),
+			Timezone:       jsonStringNested(tb, "sessions", "timezone", "America/New_York"),
 		},
 		Security: SecurityConfig{
 			RequirePassphrase:  jsonBoolNested(tb, "security", "require_passphrase", false),

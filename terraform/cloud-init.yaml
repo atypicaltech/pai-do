@@ -57,7 +57,8 @@ write_files:
             "max_concurrent": 2,
             "default_work_dir": "~/projects",
             "default_model": "claude-opus-4-6",
-            "reset_hour": 4
+            "reset_hour": 4,
+            "timezone": "America/New_York"
           },
           "security": {
             "require_passphrase": false,
