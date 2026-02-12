@@ -86,7 +86,7 @@ Push to `main` branch and trigger the workflow manually (workflow_dispatch).
 2. Persistent volume attached and mounted
 3. Tailscale VPN connection (hostname: `pai-prod`)
 4. Claude Code native binary (auto-updates)
-5. PAI Bridge binary (built from source via `git clone`)
+5. PAI Bridge binary (downloaded from latest GitHub release)
 6. Bridge running as systemd service
 7. Health check server on port 7777
 

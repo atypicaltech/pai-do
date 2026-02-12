@@ -506,14 +506,12 @@ func (sm *SessionManager) SendMessage(userID string, text string, attachment *At
 	}
 
 	// Read stderr
-	stderrData, _ := os.ReadFile("/dev/null") // placeholder
 	stderrScanner := bufio.NewScanner(stderr)
 	var stderrBuf strings.Builder
 	for stderrScanner.Scan() {
 		stderrBuf.WriteString(stderrScanner.Text())
 		stderrBuf.WriteString("\n")
 	}
-	_ = stderrData
 
 	exitErr := cmd.Wait()
 

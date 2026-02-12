@@ -7,8 +7,6 @@ packages:
   - fail2ban
   - curl
   - jq
-  - git
-  - golang-go
 
 write_files:
   # Fail2ban jail config
@@ -195,22 +193,16 @@ write_files:
       fi
       log "Claude Code installed at $CLAUDE_PATH ($(claude --version 2>/dev/null))"
 
-      # 2. Clone repo and build PAI Bridge
-      log "Cloning pai-do repository..."
-      git clone https://github.com/atypicaltech/pai-do.git /root/pai-do
+      # 2. Download pre-built PAI Bridge binary from latest release
+      log "Downloading PAI Bridge binary..."
+      curl -fsSL -o /usr/local/bin/pai-bridge \
+        https://github.com/atypicaltech/pai-do/releases/latest/download/pai-bridge
       if [ $? -ne 0 ]; then
-        log "ERROR: git clone failed"
-        exit 1
-      fi
-      log "Building PAI Bridge..."
-      cd /root/pai-do/bridge-go
-      CGO_ENABLED=0 go build -ldflags="-s -w" -o /usr/local/bin/pai-bridge .
-      if [ $? -ne 0 ]; then
-        log "ERROR: Go build failed"
+        log "ERROR: Failed to download pai-bridge binary"
         exit 1
       fi
       chmod +x /usr/local/bin/pai-bridge
-      log "PAI Bridge built and installed at /usr/local/bin/pai-bridge"
+      log "PAI Bridge installed at /usr/local/bin/pai-bridge"
 
       # 3. Create state directories on persistent volume
       mkdir -p /root/.claude/skills/TelegramBridge/state
