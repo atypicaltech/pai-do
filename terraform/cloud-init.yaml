@@ -1,4 +1,5 @@
 #cloud-config
+# PAI infrastructure - last verified 2026-02-12
 package_update: true
 package_upgrade: true
 
