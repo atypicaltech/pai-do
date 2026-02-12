@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"os/user"
+	"strconv"
 	"syscall"
 	"time"
 )
@@ -22,12 +24,27 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Look up unprivileged user for Claude subprocess isolation
+	var claudeCredential *syscall.Credential
+	claudeUser := os.Getenv("CLAUDE_RUN_AS_USER")
+	if claudeUser == "" {
+		claudeUser = "pai"
+	}
+	if u, err := user.Lookup(claudeUser); err == nil {
+		uid, _ := strconv.ParseUint(u.Uid, 10, 32)
+		gid, _ := strconv.ParseUint(u.Gid, 10, 32)
+		claudeCredential = &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}
+		log.Printf("[PAI Bridge] Claude subprocesses will run as user %s (uid=%d, gid=%d)", claudeUser, uid, gid)
+	} else {
+		log.Printf("[PAI Bridge] WARNING: user %q not found, Claude will run as current user: %v", claudeUser, err)
+	}
+
 	// Memory manager
 	memory := NewMemoryManager(cfg)
 	log.Printf("[PAI Bridge] Memory logging enabled=%v, path=%s", cfg.Memory.Enabled, cfg.Memory.BasePath)
 
 	// Session manager
-	sessions := NewSessionManager(cfg, memory)
+	sessions := NewSessionManager(cfg, memory, claudeCredential)
 
 	// Telegram bot
 	bot, err := NewBot(cfg, sessions)

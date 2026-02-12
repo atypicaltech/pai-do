@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -44,16 +45,17 @@ type MessageResult struct {
 }
 
 type SessionManager struct {
-	mu            sync.RWMutex
-	sessions      map[string]*Session
-	procs         map[string]context.CancelFunc
-	config        *Config
-	stateDir      string
-	memory        *MemoryManager
-	resetLocation *time.Location
+	mu              sync.RWMutex
+	sessions        map[string]*Session
+	procs           map[string]context.CancelFunc
+	config          *Config
+	stateDir        string
+	memory          *MemoryManager
+	resetLocation   *time.Location
+	claudeCredential *syscall.Credential // nil = run as current user
 }
 
-func NewSessionManager(cfg *Config, memory *MemoryManager) *SessionManager {
+func NewSessionManager(cfg *Config, memory *MemoryManager, cred *syscall.Credential) *SessionManager {
 	home, _ := os.UserHomeDir()
 	paiDir := os.Getenv("PAI_DIR")
 	if paiDir == "" {
@@ -68,12 +70,13 @@ func NewSessionManager(cfg *Config, memory *MemoryManager) *SessionManager {
 	}
 
 	sm := &SessionManager{
-		sessions:      make(map[string]*Session),
-		procs:         make(map[string]context.CancelFunc),
-		config:        cfg,
-		stateDir:      stateDir,
-		memory:        memory,
-		resetLocation: loc,
+		sessions:         make(map[string]*Session),
+		procs:            make(map[string]context.CancelFunc),
+		config:           cfg,
+		stateDir:         stateDir,
+		memory:           memory,
+		resetLocation:    loc,
+		claudeCredential: cred,
 	}
 	sm.loadFromDisk()
 	return sm
@@ -405,7 +408,28 @@ func (sm *SessionManager) SendMessage(userID string, text string, attachment *At
 
 	cmd := exec.CommandContext(ctx, claudePath, args...)
 	cmd.Dir = session.WorkDir
-	cmd.Env = os.Environ()
+
+	// Build environment: inherit parent env, override HOME for unprivileged user
+	env := os.Environ()
+	if sm.claudeCredential != nil {
+		claudeHome := os.Getenv("CLAUDE_USER_HOME")
+		if claudeHome == "" {
+			claudeHome = "/home/pai"
+		}
+		// Override HOME so Claude finds its config under the pai user's home
+		filtered := make([]string, 0, len(env))
+		for _, e := range env {
+			if !strings.HasPrefix(e, "HOME=") {
+				filtered = append(filtered, e)
+			}
+		}
+		env = append(filtered, "HOME="+claudeHome)
+
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			Credential: sm.claudeCredential,
+		}
+	}
+	cmd.Env = env
 
 	if useStreamJSON {
 		stdin, err := cmd.StdinPipe()

@@ -62,7 +62,7 @@ write_files:
           "sessions": {
             "timeout_minutes": 240,
             "max_concurrent": 2,
-            "default_work_dir": "~/projects",
+            "default_work_dir": "/home/pai/projects",
             "default_model": "claude-opus-4-6",
             "reset_hour": 4,
             "timezone": "America/New_York"
@@ -81,8 +81,8 @@ write_files:
         }
       }
 
-  # Claude Code onboarding bypass for headless auth
-  - path: /root/.claude.json
+  # Claude Code onboarding bypass for headless auth (pai user runs Claude)
+  - path: /home/pai/.claude.json
     permissions: '0600'
     content: |
       {
@@ -103,14 +103,22 @@ write_files:
       User=root
       EnvironmentFile=/etc/pai/secrets.env
       Environment=HOME=/root
-      Environment=PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin
-      ExecStartPre=/bin/test -L /root/.claude
-      ExecStartPre=/bin/test -f /root/.claude/settings.json
+      Environment=PATH=/home/pai/.local/bin:/usr/local/bin:/usr/bin:/bin
+      Environment=PAI_DIR=/mnt/pai-data/claude
+      Environment=CLAUDE_PATH=/home/pai/.local/bin/claude
+      Environment=CLAUDE_USER_HOME=/home/pai
+      ExecStartPre=/bin/test -d /mnt/pai-data/claude
+      ExecStartPre=/bin/test -f /mnt/pai-data/claude/settings.json
       ExecStart=/usr/local/bin/pai-bridge
       Restart=always
       RestartSec=10
       StandardOutput=journal
       StandardError=journal
+
+      # Sandboxing
+      ProtectKernelTunables=true
+      ProtectKernelModules=true
+      ProtectControlGroups=true
 
       [Install]
       WantedBy=multi-user.target
@@ -128,6 +136,12 @@ write_files:
       log() { echo "$(date): $1" >> $LOG; }
 
       log "Starting PAI setup"
+
+      # Create unprivileged user for Claude Code subprocesses
+      if ! id pai &>/dev/null; then
+        useradd --system --shell /bin/bash --home-dir /home/pai --create-home pai
+        log "Created pai user"
+      fi
 
       # Wait for DO volume to be attached (Terraform attaches after droplet creation)
       VOLUME_DEV="/dev/disk/by-id/scsi-0DO_Volume_${volume_name}"
@@ -154,24 +168,28 @@ write_files:
         log "Added volume to fstab"
       fi
 
-      # Set up persistent storage symlinks
-      log "Setting up persistent storage symlinks..."
+      # Set up persistent storage directories and ownership
+      log "Setting up persistent storage..."
       mkdir -p /mnt/pai-data/claude
       mkdir -p /mnt/pai-data/projects
+      chown -R pai:pai /mnt/pai-data/claude /mnt/pai-data/projects
 
-      # ~/.claude -> /mnt/pai-data/claude
-      if [ ! -L ~/.claude ]; then
-        rm -rf ~/.claude 2>/dev/null || true
-        ln -s /mnt/pai-data/claude ~/.claude
-        log "Created symlink ~/.claude -> /mnt/pai-data/claude"
+      # Symlinks for pai user (Claude Code runs as pai)
+      PAI_HOME=/home/pai
+      if [ ! -L "$PAI_HOME/.claude" ]; then
+        rm -rf "$PAI_HOME/.claude" 2>/dev/null || true
+        ln -s /mnt/pai-data/claude "$PAI_HOME/.claude"
+        log "Created symlink $PAI_HOME/.claude -> /mnt/pai-data/claude"
       fi
 
-      # ~/projects -> /mnt/pai-data/projects (user files persist across deploys)
-      if [ ! -L ~/projects ]; then
-        rm -rf ~/projects 2>/dev/null || true
-        ln -s /mnt/pai-data/projects ~/projects
-        log "Created symlink ~/projects -> /mnt/pai-data/projects"
+      if [ ! -L "$PAI_HOME/projects" ]; then
+        rm -rf "$PAI_HOME/projects" 2>/dev/null || true
+        ln -s /mnt/pai-data/projects "$PAI_HOME/projects"
+        log "Created symlink $PAI_HOME/projects -> /mnt/pai-data/projects"
       fi
+
+      # Onboarding bypass ownership
+      chown pai:pai "$PAI_HOME/.claude.json" 2>/dev/null || true
 
       # Merge Terraform config into existing settings.json (preserves server-side keys)
       SETTINGS="/mnt/pai-data/claude/settings.json"
@@ -201,17 +219,15 @@ write_files:
         fi
       fi
 
-      # 1. Install Claude Code (native binary, no Node.js needed)
-      log "Installing Claude Code..."
-      curl -fsSL https://claude.ai/install.sh | bash
-      export PATH="$PATH:/root/.local/bin"
-      hash -r
-
-      CLAUDE_PATH=$(which claude 2>/dev/null) || {
-        log "ERROR: Claude Code CLI not found after install"
+      # 1. Install Claude Code as pai user (runs unprivileged)
+      log "Installing Claude Code as pai user..."
+      su - pai -c 'curl -fsSL https://claude.ai/install.sh | bash'
+      CLAUDE_PATH="/home/pai/.local/bin/claude"
+      if [ ! -f "$CLAUDE_PATH" ]; then
+        log "ERROR: Claude Code CLI not found at $CLAUDE_PATH after install"
         exit 1
-      }
-      CLAUDE_VERSION=$(claude --version 2>/dev/null || echo "unknown")
+      fi
+      CLAUDE_VERSION=$(su - pai -c 'claude --version 2>/dev/null' || echo "unknown")
       log "Claude Code installed at $CLAUDE_PATH ($CLAUDE_VERSION)"
 
       # 2. Download pre-built PAI Bridge binary from latest release
@@ -223,10 +239,11 @@ write_files:
       log "PAI Bridge installed at /usr/local/bin/pai-bridge"
 
       # 3. Create state directories on persistent volume
-      mkdir -p /root/.claude/skills/TelegramBridge/state
+      mkdir -p /mnt/pai-data/claude/skills/TelegramBridge/state
       mkdir -p /mnt/pai-data/memory/conversations
       mkdir -p /mnt/pai-data/memory/summaries
       mkdir -p /mnt/pai-data/memory/daily
+      chown -R pai:pai /mnt/pai-data
 
       # 4. Enable and start the bridge service
       log "Starting PAI Telegram Bridge service..."
