@@ -28,6 +28,7 @@ type Bot struct {
 	rateMap    map[string][]int64
 	rateMu     sync.Mutex
 	lastPollAt atomic.Int64 // unix milli of last successful poll cycle
+	stopCh     chan struct{}
 }
 
 func NewBot(cfg *Config, sessions *SessionManager) (*Bot, error) {
@@ -41,6 +42,7 @@ func NewBot(cfg *Config, sessions *SessionManager) (*Bot, error) {
 		config:   cfg,
 		sessions: sessions,
 		rateMap:  make(map[string][]int64),
+		stopCh:   make(chan struct{}),
 	}, nil
 }
 
@@ -56,24 +58,39 @@ func (b *Bot) Start() {
 	cmdCfg := tgbotapi.NewSetMyCommands(commands...)
 	b.api.Request(cmdCfg)
 
-	u := tgbotapi.NewUpdate(0)
-	u.Timeout = 60
-	updates := b.api.GetUpdatesChan(u)
-
 	log.Println("[PAI Bridge] Bot is running.")
-	b.lastPollAt.Store(time.Now().UnixMilli())
 
-	for update := range updates {
+	var offset int
+	for {
+		select {
+		case <-b.stopCh:
+			return
+		default:
+		}
+
+		u := tgbotapi.NewUpdate(offset)
+		u.Timeout = 60
+		updates, err := b.api.GetUpdates(u)
 		b.lastPollAt.Store(time.Now().UnixMilli())
-		if update.Message == nil {
+
+		if err != nil {
+			log.Printf("[PAI Bridge] Poll error: %v", err)
+			time.Sleep(5 * time.Second)
 			continue
 		}
-		go b.handleUpdate(update)
+
+		for _, update := range updates {
+			offset = update.UpdateID + 1
+			if update.Message == nil {
+				continue
+			}
+			go b.handleUpdate(update)
+		}
 	}
 }
 
 func (b *Bot) Stop() {
-	b.api.StopReceivingUpdates()
+	close(b.stopCh)
 }
 
 // LastPollSecondsAgo returns how many seconds since the last successful poll cycle.
