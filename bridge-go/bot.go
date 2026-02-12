@@ -506,8 +506,9 @@ func extractVoiceDirective(text string) (string, string) {
 	var voiceText string
 	var cleanLines []string
 
-	// Match both VOICE: directive and 🗣️ PAI:/Ghost: voice line from the Algorithm
-	voiceRe := regexp.MustCompile(`^(?:VOICE:|🗣️\s*(?:PAI|Ghost):)\s*(.+)$`)
+	// Match both VOICE: directive and 🗣️ <Name>: voice line from the Algorithm
+	// The name after 🗣️ is configurable via settings.json daidentity.name
+	voiceRe := regexp.MustCompile(`^(?:VOICE:|🗣️\s*\w+:)\s*(.+)$`)
 	for _, line := range strings.Split(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if match := voiceRe.FindStringSubmatch(trimmed); match != nil {
