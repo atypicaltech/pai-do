@@ -199,6 +199,12 @@ write_files:
         log "Created symlink $PAI_HOME/projects -> /mnt/pai-data/projects"
       fi
 
+      if [ -d "/mnt/pai-data/claude/ssh" ] && [ ! -L "$PAI_HOME/.ssh" ]; then
+        rm -rf "$PAI_HOME/.ssh" 2>/dev/null || true
+        ln -s /mnt/pai-data/claude/ssh "$PAI_HOME/.ssh"
+        log "Created symlink $PAI_HOME/.ssh -> /mnt/pai-data/claude/ssh"
+      fi
+
       # Onboarding bypass ownership
       chown pai:pai "$PAI_HOME/.claude.json" 2>/dev/null || true
 
@@ -240,6 +246,18 @@ write_files:
       fi
       CLAUDE_VERSION=$(su - pai -c 'claude --version 2>/dev/null' || echo "unknown")
       log "Claude Code installed at $CLAUDE_PATH ($CLAUDE_VERSION)"
+
+      # 1b. Install GitHub CLI as pai user
+      log "Installing GitHub CLI..."
+      GH_VERSION=$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest | jq -r '.tag_name' | sed 's/^v//')
+      curl -fsSL "https://github.com/cli/cli/releases/download/v$${GH_VERSION}/gh_$${GH_VERSION}_linux_amd64.tar.gz" \
+        -o /tmp/gh.tar.gz \
+        && tar -xzf /tmp/gh.tar.gz -C /tmp/ \
+        && cp "/tmp/gh_$${GH_VERSION}_linux_amd64/bin/gh" /home/pai/.local/bin/gh \
+        && chmod +x /home/pai/.local/bin/gh \
+        && rm -rf /tmp/gh.tar.gz /tmp/gh_* \
+        && log "GitHub CLI v$${GH_VERSION} installed at /home/pai/.local/bin/gh" \
+        || log "WARNING: GitHub CLI install failed (non-fatal)"
 
       # 2. Download pre-built PAI Bridge binary from latest release (with integrity check)
       log "Downloading PAI Bridge binary..."
