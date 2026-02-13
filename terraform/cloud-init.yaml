@@ -259,6 +259,17 @@ write_files:
         && log "GitHub CLI v$${GH_VERSION} installed at /home/pai/.local/bin/gh" \
         || log "WARNING: GitHub CLI install failed (non-fatal)"
 
+      # 1c. Install DigitalOcean CLI (doctl)
+      log "Installing DigitalOcean CLI..."
+      DOCTL_VERSION=$(curl -fsSL https://api.github.com/repos/digitalocean/doctl/releases/latest | jq -r '.tag_name' | sed 's/^v//')
+      curl -fsSL "https://github.com/digitalocean/doctl/releases/download/v$${DOCTL_VERSION}/doctl-$${DOCTL_VERSION}-linux-amd64.tar.gz" \
+        -o /tmp/doctl.tar.gz \
+        && tar -xzf /tmp/doctl.tar.gz -C /home/pai/.local/bin/ \
+        && chmod +x /home/pai/.local/bin/doctl \
+        && rm -f /tmp/doctl.tar.gz \
+        && log "DigitalOcean CLI v$${DOCTL_VERSION} installed at /home/pai/.local/bin/doctl" \
+        || log "WARNING: DigitalOcean CLI install failed (non-fatal)"
+
       # 2. Download pre-built PAI Bridge binary from latest release (with integrity check)
       log "Downloading PAI Bridge binary..."
       curl -fsSL -o /usr/local/bin/pai-bridge \
