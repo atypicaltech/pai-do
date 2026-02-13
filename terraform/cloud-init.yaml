@@ -1,14 +1,7 @@
 #cloud-config
-# PAI infrastructure - v2026.02.11
+# PAI infrastructure - v2026.02.12
 package_update: true
 package_upgrade: true
-
-# Block metadata API immediately — before packages, runcmd, or any external scripts.
-# Secrets are in user_data; blocking metadata prevents any process from reading them.
-# bootcmd runs before package_update and runcmd; write_files uses inline content (no metadata fetch).
-bootcmd:
-  - iptables -I OUTPUT 1 -d 169.254.169.254 -j REJECT --reject-with icmp-port-unreachable
-  - ip6tables -I OUTPUT 1 -d fd00:ec2::254 -j REJECT --reject-with icmp6-port-unreachable
 
 packages:
   - ufw
@@ -19,7 +12,7 @@ packages:
 
 write_files:
   # Secrets file - root-only, consumed by systemd EnvironmentFile
-  # Metadata API is blocked in bootcmd before any processes can read user_data
+  # Metadata API is blocked via iptables at the end of runcmd after all setup completes
   - path: /etc/pai/secrets.env
     permissions: '0400'
     owner: root:root
@@ -308,4 +301,7 @@ runcmd:
   - sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
   - systemctl restart ssh
 
-  # Metadata API is blocked in bootcmd (before any packages or scripts run)
+  # Block DigitalOcean metadata API - prevents secrets exfiltration via user_data
+  # This MUST be the last runcmd entry (after all setup that might need metadata)
+  - iptables -I OUTPUT 1 -d 169.254.169.254 -j REJECT --reject-with icmp-port-unreachable
+  - ip6tables -I OUTPUT 1 -d fd00:ec2::254 -j REJECT --reject-with icmp6-port-unreachable
