@@ -73,7 +73,7 @@ func main() {
 	})
 
 	go func() {
-		addr := fmt.Sprintf(":%d", cfg.Server.Port)
+		addr := fmt.Sprintf("127.0.0.1:%d", cfg.Server.Port)
 		log.Printf("[PAI Bridge] Health server listening on http://localhost%s/health", addr)
 		if err := http.ListenAndServe(addr, mux); err != nil {
 			log.Printf("[PAI Bridge] Health server error: %v", err)

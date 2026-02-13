@@ -62,7 +62,7 @@ func (b *Bot) Start() {
 		{Command: "start", Description: "Show bridge info"},
 		{Command: "status", Description: "Current session status"},
 		{Command: "clear", Description: "End current session"},
-		{Command: "cd", Description: "Change working directory"},
+
 		{Command: "sessions", Description: "List active sessions"},
 	}
 	cmdCfg := tgbotapi.NewSetMyCommands(commands...)
@@ -170,36 +170,6 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message, userID string) {
 		} else {
 			b.send(chatID, "No active session.")
 		}
-
-	case "cd":
-		dir := strings.TrimSpace(msg.CommandArguments())
-		if dir == "" {
-			b.send(chatID, fmt.Sprintf("Current work dir: %s\n\nUsage: /cd /path/to/project", b.config.Sessions.DefaultWorkDir))
-			return
-		}
-		if strings.HasPrefix(dir, "~/") {
-			home, _ := os.UserHomeDir()
-			dir = filepath.Join(home, dir[2:])
-		}
-		// Resolve symlinks for comparison (~/projects -> /mnt/pai-data/projects)
-		resolvedDir, err := filepath.EvalSymlinks(dir)
-		if err != nil {
-			resolvedDir = dir
-		}
-		resolvedDefault, err := filepath.EvalSymlinks(b.config.Sessions.DefaultWorkDir)
-		if err != nil {
-			resolvedDefault = b.config.Sessions.DefaultWorkDir
-		}
-		if !strings.HasPrefix(resolvedDir, resolvedDefault) && !strings.HasPrefix(resolvedDir, "/mnt/pai-data") {
-			b.send(chatID, fmt.Sprintf("Path not allowed. Must be under %s or /mnt/pai-data.", b.config.Sessions.DefaultWorkDir))
-			return
-		}
-		session := b.sessions.GetSession(userID)
-		if session == nil {
-			session = b.sessions.CreateSession(userID, fmt.Sprintf("%d", chatID))
-		}
-		b.sessions.SetWorkDir(userID, dir)
-		b.send(chatID, fmt.Sprintf("Work directory set to: %s", dir))
 
 	case "sessions":
 		list := b.sessions.ListSessions()

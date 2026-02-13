@@ -157,14 +157,6 @@ func (sm *SessionManager) CreateSession(userID, chatID string) *Session {
 	return s
 }
 
-func (sm *SessionManager) SetWorkDir(userID, dir string) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	if s, ok := sm.sessions[userID]; ok {
-		s.WorkDir = dir
-	}
-}
-
 func (sm *SessionManager) KillSession(userID string) bool {
 	sm.mu.Lock()
 
