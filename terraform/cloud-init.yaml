@@ -9,6 +9,7 @@ packages:
   - curl
   - jq
   - ffmpeg
+  - unzip
 
 write_files:
   # Secrets file - root-only, consumed by systemd EnvironmentFile
@@ -269,6 +270,12 @@ write_files:
         && rm -f /tmp/doctl.tar.gz \
         && log "DigitalOcean CLI v$${DOCTL_VERSION} installed at /home/pai/.local/bin/doctl" \
         || log "WARNING: DigitalOcean CLI install failed (non-fatal)"
+
+      # 1d. Install Bun runtime
+      log "Installing Bun..."
+      su - pai -c 'curl -fsSL https://bun.sh/install | bash' \
+        && log "Bun installed at /home/pai/.bun/bin/bun" \
+        || log "WARNING: Bun install failed (non-fatal)"
 
       # 2. Download pre-built PAI Bridge binary from latest release (with integrity check)
       log "Downloading PAI Bridge binary..."
