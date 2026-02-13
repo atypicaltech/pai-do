@@ -3,6 +3,13 @@
 package_update: true
 package_upgrade: true
 
+# Block metadata API immediately — before packages, runcmd, or any external scripts.
+# Secrets are in user_data; blocking metadata prevents any process from reading them.
+# bootcmd runs before package_update and runcmd; write_files uses inline content (no metadata fetch).
+bootcmd:
+  - iptables -I OUTPUT 1 -d 169.254.169.254 -j REJECT --reject-with icmp-port-unreachable
+  - ip6tables -I OUTPUT 1 -d fd00:ec2::254 -j REJECT --reject-with icmp6-port-unreachable
+
 packages:
   - ufw
   - fail2ban
@@ -12,7 +19,7 @@ packages:
 
 write_files:
   # Secrets file - root-only, consumed by systemd EnvironmentFile
-  # This is still in user_data, but we block the metadata API via iptables after boot
+  # Metadata API is blocked in bootcmd before any processes can read user_data
   - path: /etc/pai/secrets.env
     permissions: '0400'
     owner: root:root
@@ -241,13 +248,19 @@ write_files:
       CLAUDE_VERSION=$(su - pai -c 'claude --version 2>/dev/null' || echo "unknown")
       log "Claude Code installed at $CLAUDE_PATH ($CLAUDE_VERSION)"
 
-      # 2. Download pre-built PAI Bridge binary from latest release
+      # 2. Download pre-built PAI Bridge binary from latest release (with integrity check)
       log "Downloading PAI Bridge binary..."
       curl -fsSL -o /usr/local/bin/pai-bridge \
         https://github.com/atypicaltech/pai-do/releases/latest/download/pai-bridge \
         || { log "ERROR: Failed to download pai-bridge binary"; exit 1; }
+      curl -fsSL -o /tmp/pai-bridge.sha256 \
+        https://github.com/atypicaltech/pai-do/releases/latest/download/pai-bridge.sha256 \
+        || { log "ERROR: Failed to download checksum"; exit 1; }
+      cd /usr/local/bin && sha256sum -c /tmp/pai-bridge.sha256 \
+        || { log "ERROR: Binary checksum verification FAILED"; rm -f /usr/local/bin/pai-bridge; exit 1; }
+      rm -f /tmp/pai-bridge.sha256
       chmod +x /usr/local/bin/pai-bridge
-      log "PAI Bridge installed at /usr/local/bin/pai-bridge"
+      log "PAI Bridge installed and verified at /usr/local/bin/pai-bridge"
 
       # 3. Create state directories on persistent volume
       mkdir -p /mnt/pai-data/claude/skills/TelegramBridge/state
@@ -295,7 +308,4 @@ runcmd:
   - sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
   - systemctl restart ssh
 
-  # Block DigitalOcean metadata API - prevents secrets exfiltration via user_data
-  # This MUST be the last runcmd entry (after all setup that might need metadata)
-  - iptables -I OUTPUT 1 -d 169.254.169.254 -j REJECT --reject-with icmp-port-unreachable
-  - ip6tables -I OUTPUT 1 -d fd00:ec2::254 -j REJECT --reject-with icmp6-port-unreachable
+  # Metadata API is blocked in bootcmd (before any packages or scripts run)

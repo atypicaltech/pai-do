@@ -391,9 +391,13 @@ func (b *Bot) handleMessage(chatID int64, userID, text string, attachment *Attac
 		}
 	}
 
-	// Send files
+	// Send files (with path safety check)
 	for _, fp := range allFiles {
 		if _, err := os.Stat(fp); os.IsNotExist(err) {
+			continue
+		}
+		if !isSafeSendPath(fp) {
+			log.Printf("[PAI Bridge] SEND blocked (path not in allowlist): %s", fp)
 			continue
 		}
 		if imageExtRe.MatchString(fp) {
@@ -500,6 +504,59 @@ func extractSendDirectives(text string) (string, []string) {
 	}
 
 	return strings.Join(cleanLines, "\n"), sendPaths
+}
+
+// sendAllowedPrefixes are the only directory trees from which SEND: may deliver files.
+var sendAllowedPrefixes = []string{
+	"/mnt/pai-data/projects",
+	"/mnt/pai-data/memory",
+	"/tmp",
+	"/home/pai",
+}
+
+// sendDeniedSubstrings blocks paths containing sensitive patterns, even within allowed trees.
+var sendDeniedSubstrings = []string{
+	"secrets.env",
+	".ssh",
+	".env",
+	"credentials",
+	"token",
+	".key",
+	".pem",
+}
+
+// isSafeSendPath returns true only if the resolved path is under an allowed prefix
+// and does not match any denied pattern. Symlinks are resolved to prevent traversal.
+func isSafeSendPath(path string) bool {
+	if path == "" {
+		return false
+	}
+
+	// Try to resolve symlinks; fall back to cleaning the path if the file doesn't exist yet
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		resolved = filepath.Clean(path)
+	}
+	resolved, err = filepath.Abs(resolved)
+	if err != nil {
+		return false
+	}
+
+	// Check denied substrings against the full path (catches directory components like .ssh/)
+	lower := strings.ToLower(resolved)
+	for _, denied := range sendDeniedSubstrings {
+		if strings.Contains(lower, denied) {
+			return false
+		}
+	}
+
+	// Check allowed prefixes
+	for _, prefix := range sendAllowedPrefixes {
+		if strings.HasPrefix(resolved, prefix+"/") || resolved == prefix {
+			return true
+		}
+	}
+	return false
 }
 
 func extractVoiceDirective(text string) (string, string) {

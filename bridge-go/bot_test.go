@@ -231,3 +231,46 @@ func TestExtractSendDirectives_HomeTilde(t *testing.T) {
 		t.Errorf("path should be expanded: got %q", paths[0])
 	}
 }
+
+func TestIsSafeSendPath(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want bool
+	}{
+		// Allowed paths
+		{"project file", "/mnt/pai-data/projects/repo/file.txt", true},
+		{"memory file", "/mnt/pai-data/memory/notes.md", true},
+		{"tmp file", "/tmp/output.png", true},
+		{"home file", "/home/pai/document.pdf", true},
+
+		// Blocked: outside allowed trees
+		{"etc secrets", "/etc/pai/secrets.env", false},
+		{"etc shadow", "/etc/shadow", false},
+		{"root ssh", "/root/.ssh/id_rsa", false},
+		{"usr bin", "/usr/local/bin/pai-bridge", false},
+
+		// Blocked: denied substrings even if inside allowed tree
+		{"secrets.env in projects", "/mnt/pai-data/projects/secrets.env", false},
+		{".ssh in home", "/home/pai/.ssh/id_rsa", false},
+		{".env in projects", "/mnt/pai-data/projects/.env", false},
+		{"credentials in home", "/home/pai/credentials.json", false},
+		{"token file in tmp", "/tmp/token.txt", false},
+		{".key in projects", "/mnt/pai-data/projects/server.key", false},
+		{".pem in tmp", "/tmp/cert.pem", false},
+
+		// Edge cases
+		{"bare allowed prefix", "/mnt/pai-data/projects", true},
+		{"near-miss prefix", "/mnt/pai-data/project-other/file.txt", false},
+		{"empty path", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isSafeSendPath(tt.path)
+			if got != tt.want {
+				t.Errorf("isSafeSendPath(%q) = %v, want %v", tt.path, got, tt.want)
+			}
+		})
+	}
+}
