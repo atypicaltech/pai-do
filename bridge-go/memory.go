@@ -43,7 +43,7 @@ func (mm *MemoryManager) LogTurn(userID, sessionID, role, text string) {
 	}
 
 	dir := filepath.Join(mm.basePath, "conversations", userID)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		log.Printf("[PAI Memory] Failed to create dir %s: %v", dir, err)
 		return
 	}
@@ -63,7 +63,7 @@ func (mm *MemoryManager) LogTurn(userID, sessionID, role, text string) {
 		return
 	}
 
-	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		log.Printf("[PAI Memory] Failed to open log %s: %v", logPath, err)
 		return
@@ -161,7 +161,7 @@ func (mm *MemoryManager) FlushSession(userID, sessionID, model string) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, claudePath, "-p", prompt, "--model", model, "--output-format", "text")
-	cmd.Env = os.Environ()
+	cmd.Env = buildClaudeEnv(true)
 
 	output, err := cmd.Output()
 	summary := strings.TrimSpace(string(output))
@@ -180,7 +180,7 @@ func (mm *MemoryManager) FlushSession(userID, sessionID, model string) {
 
 	// Write the summary file
 	dir := filepath.Join(mm.basePath, "summaries", userID)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		log.Printf("[PAI Memory] Failed to create summaries dir: %v", err)
 		return
 	}
@@ -192,7 +192,7 @@ func (mm *MemoryManager) FlushSession(userID, sessionID, model string) {
 	}
 	summaryPath := filepath.Join(dir, fmt.Sprintf("%s-%s.md", date, shortID))
 
-	if err := os.WriteFile(summaryPath, []byte(summary+"\n"), 0644); err != nil {
+	if err := os.WriteFile(summaryPath, []byte(summary+"\n"), 0600); err != nil {
 		log.Printf("[PAI Memory] Failed to write summary: %v", err)
 		return
 	}
@@ -303,7 +303,7 @@ func (mm *MemoryManager) AppendDailyNote(userID, note string) {
 	}
 
 	dir := filepath.Join(mm.basePath, "daily", userID)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		log.Printf("[PAI Memory] Failed to create daily dir: %v", err)
 		return
 	}
@@ -311,7 +311,7 @@ func (mm *MemoryManager) AppendDailyNote(userID, note string) {
 	date := time.Now().Format("2006-01-02")
 	dailyPath := filepath.Join(dir, date+".md")
 
-	f, err := os.OpenFile(dailyPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(dailyPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		log.Printf("[PAI Memory] Failed to open daily log: %v", err)
 		return

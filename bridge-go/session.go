@@ -102,7 +102,7 @@ func (sm *SessionManager) loadFromDisk() {
 }
 
 func (sm *SessionManager) saveToDisk() {
-	os.MkdirAll(sm.stateDir, 0755)
+	os.MkdirAll(sm.stateDir, 0700)
 	path := filepath.Join(sm.stateDir, "sessions.json")
 
 	var sessions []*Session
@@ -115,7 +115,7 @@ func (sm *SessionManager) saveToDisk() {
 		log.Printf("[PAI Bridge] Failed to marshal sessions: %v", err)
 		return
 	}
-	os.WriteFile(path, data, 0644)
+	os.WriteFile(path, data, 0600)
 }
 
 func (sm *SessionManager) CanCreate() bool {
@@ -322,6 +322,10 @@ You are responding through a Telegram chat bridge. The user is on their phone.
 func (sm *SessionManager) SendMessage(userID string, text string, attachment *Attachment) (*MessageResult, error) {
 	sm.mu.Lock()
 	session, ok := sm.sessions[userID]
+	if ok && session.Status == "busy" {
+		sm.mu.Unlock()
+		return nil, fmt.Errorf("Still processing your previous message. Please wait.")
+	}
 	if !ok {
 		// Enforce concurrency limit before creating a new session
 		active := 0
@@ -351,6 +355,12 @@ func (sm *SessionManager) SendMessage(userID string, text string, attachment *At
 	session.Status = "busy"
 	session.LastActivityAt = time.Now().UnixMilli()
 	session.MessageCount++
+
+	// Copy session fields under lock to avoid data race after unlock
+	sessionID := session.ID
+	sessionWorkDir := session.WorkDir
+	sessionModel := session.Model
+	claudeSessionID := session.ClaudeSessionID
 	sm.mu.Unlock()
 
 	// Resolve claude binary
@@ -364,7 +374,7 @@ func (sm *SessionManager) SendMessage(userID string, text string, attachment *At
 	}
 
 	// Prepend bridge context + previous session summaries + daily notes on first message
-	isFirst := session.ClaudeSessionID == ""
+	isFirst := claudeSessionID == ""
 	messageText := text
 	if isFirst {
 		recentContext := sm.memory.GetRecentContext(userID, sm.config.Memory.MaxSummaries)
@@ -383,7 +393,7 @@ func (sm *SessionManager) SendMessage(userID string, text string, attachment *At
 
 	// Determine if we need stream-json input (for binary attachments)
 	useStreamJSON := attachment != nil && attachment.Type != "text-file"
-	hasResume := session.ClaudeSessionID != ""
+	hasResume := claudeSessionID != ""
 
 	args := []string{"-p"}
 
@@ -393,36 +403,25 @@ func (sm *SessionManager) SendMessage(userID string, text string, attachment *At
 		args = append(args, messageText, "--output-format", "stream-json", "--verbose")
 	}
 
-	args = append(args, "--model", session.Model)
+	args = append(args, "--model", sessionModel)
 
 	if hasResume {
-		args = append(args, "--resume", session.ClaudeSessionID)
+		args = append(args, "--resume", claudeSessionID)
 	}
 
 	// Log the user's message
-	sm.memory.LogTurn(userID, session.ID, "user", text)
+	sm.memory.LogTurn(userID, sessionID, "user", text)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 
 	cmd := exec.CommandContext(ctx, claudePath, args...)
-	cmd.Dir = session.WorkDir
+	cmd.Dir = sessionWorkDir
 
-	// Build environment: inherit parent env, override HOME for unprivileged user
-	env := os.Environ()
+	// Build minimal environment for Claude subprocess — only pass what's needed.
+	// This avoids leaking bridge secrets (TELEGRAM_BOT_TOKEN, CLAUDE_CODE_OAUTH_TOKEN)
+	// into the subprocess.
+	env := buildClaudeEnv(sm.claudeCredential != nil)
 	if sm.claudeCredential != nil {
-		claudeHome := os.Getenv("CLAUDE_USER_HOME")
-		if claudeHome == "" {
-			claudeHome = "/home/pai"
-		}
-		// Override HOME so Claude finds its config under the pai user's home
-		filtered := make([]string, 0, len(env))
-		for _, e := range env {
-			if !strings.HasPrefix(e, "HOME=") {
-				filtered = append(filtered, e)
-			}
-		}
-		env = append(filtered, "HOME="+claudeHome)
-
 		cmd.SysProcAttr = &syscall.SysProcAttr{
 			Credential: sm.claudeCredential,
 		}
@@ -506,7 +505,7 @@ func (sm *SessionManager) SendMessage(userID string, text string, attachment *At
 
 	// Register process for cancellation
 	sm.mu.Lock()
-	sm.procs[session.ID] = cancel
+	sm.procs[sessionID] = cancel
 	sm.mu.Unlock()
 
 	var fullResponse strings.Builder
@@ -528,9 +527,12 @@ func (sm *SessionManager) SendMessage(userID string, text string, attachment *At
 
 		// Capture session ID
 		if event["type"] == "system" {
-			if sid, ok := event["session_id"].(string); ok && sid != "" && session.ClaudeSessionID == "" {
+			if sid, ok := event["session_id"].(string); ok && sid != "" && claudeSessionID == "" {
 				sm.mu.Lock()
-				session.ClaudeSessionID = sid
+				if s, ok := sm.sessions[userID]; ok {
+					s.ClaudeSessionID = sid
+				}
+				claudeSessionID = sid
 				sm.saveToDisk()
 				sm.mu.Unlock()
 			}
@@ -559,8 +561,10 @@ func (sm *SessionManager) SendMessage(userID string, text string, attachment *At
 
 	// Cleanup
 	sm.mu.Lock()
-	delete(sm.procs, session.ID)
-	session.Status = "active"
+	delete(sm.procs, sessionID)
+	if s, ok := sm.sessions[userID]; ok {
+		s.Status = "active"
+	}
 	sm.saveToDisk()
 	sm.mu.Unlock()
 
@@ -570,7 +574,9 @@ func (sm *SessionManager) SendMessage(userID string, text string, attachment *At
 		stderrText := stderrBuf.String()
 		if hasResume && strings.Contains(stderrText, "Could not find session") {
 			sm.mu.Lock()
-			session.ClaudeSessionID = ""
+			if s, ok := sm.sessions[userID]; ok {
+				s.ClaudeSessionID = ""
+			}
 			sm.saveToDisk()
 			sm.mu.Unlock()
 			return nil, fmt.Errorf("Session expired. Send your message again to start a new conversation.")
@@ -582,7 +588,7 @@ func (sm *SessionManager) SendMessage(userID string, text string, attachment *At
 
 	// Log the assistant's response
 	if responseText := fullResponse.String(); responseText != "" {
-		sm.memory.LogTurn(userID, session.ID, "assistant", responseText)
+		sm.memory.LogTurn(userID, sessionID, "assistant", responseText)
 	}
 
 	return &MessageResult{
@@ -672,6 +678,60 @@ func extractCreatedFilesFromEvent(event map[string]interface{}) []string {
 	}
 
 	return files
+}
+
+// claudeEnvAllowlist lists environment variable prefixes/names that Claude
+// subprocesses need. Everything else (TELEGRAM_BOT_TOKEN, CLAUDE_CODE_OAUTH_TOKEN,
+// ELEVENLABS_API_KEY, etc.) is deliberately excluded.
+var claudeEnvAllowlist = []string{
+	"PATH=",
+	"LANG=",
+	"LC_",
+	"TERM=",
+	"SHELL=",
+	"USER=",
+	"LOGNAME=",
+	"XDG_",
+	"PAI_DIR=",
+	"CLAUDE_PATH=",
+	"CLAUDE_USER_HOME=",
+	"CLAUDE_RUN_AS_USER=",
+	"CLAUDE_CODE_OAUTH_TOKEN=",
+	"CLAUDE_CODE_EXPERIMENTAL_",
+	"GH_TOKEN=",
+	"DO_TOKEN=",
+	"GOOGLE_API_KEY=",
+	"GOOGLE_APPLICATION_CREDENTIALS=",
+}
+
+// buildClaudeEnv creates a filtered environment for Claude subprocesses,
+// including only allowlisted variables. When running as unprivileged user,
+// HOME is overridden to the pai user's home directory.
+func buildClaudeEnv(asUnprivilegedUser bool) []string {
+	var env []string
+	for _, e := range os.Environ() {
+		for _, prefix := range claudeEnvAllowlist {
+			if strings.HasPrefix(e, prefix) {
+				env = append(env, e)
+				break
+			}
+		}
+	}
+
+	if asUnprivilegedUser {
+		claudeHome := os.Getenv("CLAUDE_USER_HOME")
+		if claudeHome == "" {
+			claudeHome = "/home/pai"
+		}
+		env = append(env, "HOME="+claudeHome)
+	} else {
+		// Preserve HOME from parent if running as same user
+		if home := os.Getenv("HOME"); home != "" {
+			env = append(env, "HOME="+home)
+		}
+	}
+
+	return env
 }
 
 func appendUnique(slice []string, item string) []string {

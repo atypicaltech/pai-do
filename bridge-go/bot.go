@@ -133,6 +133,9 @@ func (b *Bot) LastPollSecondsAgo() float64 {
 
 func (b *Bot) handleUpdate(update tgbotapi.Update) {
 	msg := update.Message
+	if msg.From == nil {
+		return
+	}
 	userID := fmt.Sprintf("%d", msg.From.ID)
 
 	if !b.authorize(msg) {
@@ -412,7 +415,8 @@ func (b *Bot) authorize(msg *tgbotapi.Message) bool {
 	userID := fmt.Sprintf("%d", msg.From.ID)
 
 	if len(b.config.AllowedUsers) == 0 {
-		return true
+		log.Printf("[PAI Bridge] DENY %s: allowed_users is empty (fail-closed)", userID)
+		return false
 	}
 
 	for _, allowed := range b.config.AllowedUsers {
@@ -469,7 +473,9 @@ func (b *Bot) cleanRateMap() {
 
 func (b *Bot) send(chatID int64, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
-	b.api.Send(msg)
+	if _, err := b.api.Send(msg); err != nil {
+		log.Printf("[PAI Bridge] send() failed (chat=%d): %v", chatID, err)
+	}
 }
 
 // --- Helpers ---

@@ -10,6 +10,7 @@ packages:
   - jq
   - ffmpeg
   - unzip
+  - iptables-persistent
 
 write_files:
   # Secrets file - root-only, consumed by systemd EnvironmentFile
@@ -141,6 +142,11 @@ write_files:
       ProtectKernelTunables=true
       ProtectKernelModules=true
       ProtectControlGroups=true
+      ProtectSystem=strict
+      ReadWritePaths=/mnt/pai-data /home/pai /tmp /etc/pai
+      PrivateTmp=true
+      NoNewPrivileges=true
+      RestrictSUIDSGID=true
 
       [Install]
       WantedBy=multi-user.target
@@ -351,6 +357,13 @@ runcmd:
   - systemctl restart ssh
 
   # Block DigitalOcean metadata API - prevents secrets exfiltration via user_data
-  # This MUST be the last runcmd entry (after all setup that might need metadata)
+  # This MUST run after all setup that might need metadata
   - iptables -I OUTPUT 1 -d 169.254.169.254 -j REJECT --reject-with icmp-port-unreachable
   - ip6tables -I OUTPUT 1 -d fd00:ec2::254 -j REJECT --reject-with icmp6-port-unreachable
+
+  # Persist iptables rules across reboots
+  - netfilter-persistent save
+
+  # Scrub cloud-init user-data cache (contains secrets in plaintext)
+  - rm -f /var/lib/cloud/instance/user-data.txt
+  - rm -f /var/lib/cloud/instance/user-data.txt.i
