@@ -63,6 +63,9 @@ write_files:
             "ExitPlanMode",
             "Task",
             "Skill",
+            "TeamCreate",
+            "TeamDelete",
+            "SendMessage",
             "mcp__*"
           ]
         },
