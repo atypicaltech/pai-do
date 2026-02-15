@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -68,6 +69,8 @@ func (b *Bot) Start() {
 	cmdCfg := tgbotapi.NewSetMyCommands(commands...)
 	b.api.Request(cmdCfg)
 
+	b.sendStartupNotification()
+
 	log.Println("[PAI Bridge] Bot is running.")
 
 	var offset int
@@ -101,6 +104,22 @@ func (b *Bot) Start() {
 
 func (b *Bot) Stop() {
 	close(b.stopCh)
+}
+
+func (b *Bot) sendStartupNotification() {
+	for _, uid := range b.config.AllowedUsers {
+		chatID, err := strconv.ParseInt(uid, 10, 64)
+		if err != nil {
+			log.Printf("[PAI Bridge] Startup notify: invalid user ID %q: %v", uid, err)
+			continue
+		}
+		b.send(chatID, "PAI online.")
+		if b.config.Voice.Enabled && b.elevenLabsKey != "" {
+			if err := b.synthesizeAndSendVoice(chatID, "PAI online."); err != nil {
+				log.Printf("[PAI Bridge] Startup voice failed for %s: %v", uid, err)
+			}
+		}
+	}
 }
 
 // LastPollSecondsAgo returns how many seconds since the last successful poll cycle.
