@@ -124,7 +124,7 @@ func LoadConfig() (*Config, error) {
 		Voice: VoiceConfig{
 			Enabled: jsonBoolNested(tb, "voice", "enabled", false),
 			VoiceID: jsonStringNested(tb, "voice", "voice_id", "pDxcmDdBPmpAPjBko2mF"),
-			Model:   jsonStringNested(tb, "voice", "model", "eleven_v2_5_flash"),
+			Model:   jsonStringNested(tb, "voice", "model", "eleven_turbo_v2_5"),
 		},
 	}
 
