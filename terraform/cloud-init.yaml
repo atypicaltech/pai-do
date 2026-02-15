@@ -98,7 +98,7 @@ write_files:
           "voice": {
             "enabled": true,
             "voice_id": "pDxcmDdBPmpAPjBko2mF",
-            "model": "eleven_v2_5_flash"
+            "model": "eleven_turbo_v2_5"
           }
         }
       }
