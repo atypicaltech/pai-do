@@ -50,10 +50,20 @@ write_files:
             "Read",
             "Write",
             "Edit",
+            "MultiEdit",
             "Glob",
             "Grep",
+            "LS",
             "WebFetch",
-            "NotebookEdit"
+            "WebSearch",
+            "NotebookRead",
+            "NotebookEdit",
+            "TodoWrite",
+            "EnterPlanMode",
+            "ExitPlanMode",
+            "Task",
+            "Skill",
+            "mcp__*"
           ]
         },
         "env": {
