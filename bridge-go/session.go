@@ -29,6 +29,17 @@ type Session struct {
 	MessageCount    int    `json:"messageCount"`
 	Status          string `json:"status"`
 	ClaudeSessionID string `json:"claudeSessionId,omitempty"`
+
+	// pendingMu guards the pending message queue. Messages arriving while
+	// the session is busy are appended here and drained as a single batch
+	// once the active Claude subprocess finishes.
+	pendingMu sync.Mutex
+	pending   []pendingMessage
+}
+
+type pendingMessage struct {
+	Text       string
+	Attachment *Attachment
 }
 
 type Attachment struct {
@@ -42,6 +53,7 @@ type Attachment struct {
 type MessageResult struct {
 	Text         string
 	CreatedFiles []string
+	Queued       int // >0 means message was queued; value = queue depth
 }
 
 type SessionManager struct {
@@ -170,6 +182,9 @@ func (sm *SessionManager) KillSession(userID string) bool {
 		cancel()
 		delete(sm.procs, s.ID)
 	}
+
+	// Drain any queued messages so they don't leak
+	sm.drainPending(s)
 
 	sessionID := s.ID
 	model := s.Model
@@ -346,6 +361,17 @@ func (sm *SessionManager) SendMessage(userID string, text string, attachment *At
 			Status:         "active",
 		}
 		sm.sessions[userID] = session
+	}
+
+	// If the session is already processing a message, queue this one
+	if session.Status == "busy" {
+		sm.mu.Unlock()
+		session.pendingMu.Lock()
+		session.pending = append(session.pending, pendingMessage{Text: text, Attachment: attachment})
+		depth := len(session.pending)
+		session.pendingMu.Unlock()
+		log.Printf("[PAI Bridge] Message queued for user %s (%d pending)", userID, depth)
+		return &MessageResult{Queued: depth}, nil
 	}
 
 	session.Status = "busy"
@@ -573,9 +599,12 @@ func (sm *SessionManager) SendMessage(userID string, text string, attachment *At
 			session.ClaudeSessionID = ""
 			sm.saveToDisk()
 			sm.mu.Unlock()
+			// Drain pending queue so queued messages aren't silently lost
+			sm.drainPending(session)
 			return nil, fmt.Errorf("Session expired. Send your message again to start a new conversation.")
 		}
 		if stderrText != "" {
+			sm.drainPending(session)
 			return nil, fmt.Errorf("Claude exited: %s", strings.TrimSpace(stderrText))
 		}
 	}
@@ -585,10 +614,77 @@ func (sm *SessionManager) SendMessage(userID string, text string, attachment *At
 		sm.memory.LogTurn(userID, session.ID, "assistant", responseText)
 	}
 
+	// Drain any messages that queued while Claude was working.
+	// Concatenate them into a single follow-up prompt so Claude sees
+	// all the queued messages together in one invocation.
+	session.pendingMu.Lock()
+	queued := session.pending
+	session.pending = nil
+	session.pendingMu.Unlock()
+
+	if len(queued) > 0 {
+		batchText, batchAttachment := sm.buildBatch(queued)
+		log.Printf("[PAI Bridge] Processing %d queued message(s) for user %s", len(queued), userID)
+
+		batchResult, batchErr := sm.SendMessage(userID, batchText, batchAttachment)
+		if batchErr != nil {
+			// Return the first response but log the batch error
+			log.Printf("[PAI Bridge] Batch follow-up failed for user %s: %v", userID, batchErr)
+		} else if batchResult != nil && batchResult.Text != "" {
+			// Append the batch response so the caller can deliver both
+			fullResponse.WriteString("\n\n---\n\n")
+			fullResponse.WriteString(batchResult.Text)
+			createdFiles = append(createdFiles, batchResult.CreatedFiles...)
+		}
+	}
+
 	return &MessageResult{
 		Text:         fullResponse.String(),
 		CreatedFiles: createdFiles,
 	}, nil
+}
+
+// buildBatch concatenates queued messages into a single prompt. If any queued
+// message has a binary attachment, only the last one is kept (text attachments
+// are inlined into the prompt text).
+func (sm *SessionManager) buildBatch(msgs []pendingMessage) (string, *Attachment) {
+	var parts []string
+	var binaryAttachment *Attachment
+
+	for i, m := range msgs {
+		text := m.Text
+
+		// Inline text-file attachments the same way SendMessage does
+		if m.Attachment != nil && m.Attachment.Type == "text-file" && m.Attachment.TextContent != "" {
+			label := m.Attachment.FileName
+			if label == "" {
+				label = "document"
+			}
+			text = fmt.Sprintf("%s\n\n--- %s ---\n%s\n--- end ---", text, label, m.Attachment.TextContent)
+		} else if m.Attachment != nil && m.Attachment.Type != "text-file" {
+			// Binary attachment (image, PDF) — keep the last one
+			binaryAttachment = m.Attachment
+		}
+
+		if text != "" {
+			parts = append(parts, fmt.Sprintf("[Follow-up message %d/%d]:\n%s", i+1, len(msgs), text))
+		}
+	}
+
+	header := fmt.Sprintf("[While you were working, I sent %d follow-up message(s):]\n\n", len(msgs))
+	return header + strings.Join(parts, "\n\n"), binaryAttachment
+}
+
+// drainPending discards any queued messages (used on error paths where we
+// can't process them). Logs a warning if messages were dropped.
+func (sm *SessionManager) drainPending(session *Session) {
+	session.pendingMu.Lock()
+	dropped := len(session.pending)
+	session.pending = nil
+	session.pendingMu.Unlock()
+	if dropped > 0 {
+		log.Printf("[PAI Bridge] Dropped %d queued message(s) for session %s due to error", dropped, session.ID[:8])
+	}
 }
 
 func extractTextFromEvent(event map[string]interface{}) string {

@@ -339,6 +339,12 @@ func (b *Bot) handleMessage(chatID int64, userID, text string, attachment *Attac
 		return
 	}
 
+	// Message was queued because Claude is busy — acknowledge and return
+	if result.Queued > 0 {
+		b.send(chatID, fmt.Sprintf("Queued — %d message(s) waiting.", result.Queued))
+		return
+	}
+
 	if strings.TrimSpace(result.Text) == "" {
 		b.send(chatID, "(No response from Claude)")
 		return
