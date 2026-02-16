@@ -213,7 +213,6 @@ The bot registers these commands automatically:
 | `/start` | Show bridge info |
 | `/status` | Current session status |
 | `/clear` | End current session |
-| `/cd /path` | Change working directory |
 | `/sessions` | List active sessions |
 
 ### Supported Input
