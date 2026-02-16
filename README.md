@@ -10,7 +10,7 @@ Self-hosted Claude Code + Telegram Bridge on DigitalOcean, deployed via OpenTofu
 - **Storage**: 10GB persistent DO Volume at `/mnt/pai-data`
 - **Network**: Tailscale VPN mesh (zero inbound firewall rules, no public exposure)
 - **Security**: Privilege separation (bridge=root, Claude=pai), metadata API blocked, UFW on tailscale0 only, fail2ban
-- **Runtime**: Claude Code (native binary) + PAI Bridge (Go static binary)
+- **Runtime**: Claude Code (native binary) + PAI Bridge (Go static binary) + [Personal AI Infrastructure](https://github.com/danielmiessler/Personal_AI_Infrastructure)
 - **Interface**: Telegram bot via TelegramBridge daemon
 - **Voice**: ElevenLabs TTS → OGG/OPUS → Telegram voice notes (optional)
 - **Auth**: Claude subscription via OAuth token (no metered API billing)
@@ -33,6 +33,10 @@ The bridge is a lightweight Go binary (~10MB) that:
 6. Synthesizes voice responses via ElevenLabs when Claude outputs `VOICE:` directives
 
 Claude Code runs against your subscription (Pro/Max), not metered API.
+
+### Personal AI Infrastructure
+
+This project builds on [Daniel Miessler's Personal AI Infrastructure](https://github.com/danielmiessler/Personal_AI_Infrastructure) (PAI), which provides the skill system, agent definitions, hooks, and memory architecture that Claude Code uses. PAI is installed on the persistent volume after the droplet is provisioned, and is managed by the agent itself across sessions.
 
 ### Message Queue
 
