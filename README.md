@@ -18,15 +18,9 @@ Self-hosted Claude Code + Telegram Bridge on DigitalOcean, deployed via OpenTofu
 
 ## How It Works
 
-```
-You (Telegram) → Bot API → TelegramBridge (root) → Claude Code CLI (pai) → Anthropic API
-                                                           ↓
-                                                    /home/pai/projects (unprivileged)
-```
-
 The bridge is a lightweight Go binary (~10MB) that:
 1. Long-polls Telegram for messages
-2. Spawns `claude -p` subprocesses per message
+2. Spawns `claude -p` subprocesses per session
 3. Streams responses back to Telegram with HTML formatting
 4. Manages conversation sessions with `--resume`
 5. Logs conversations, generates summaries, and injects prior context into new sessions
@@ -153,7 +147,8 @@ The `TELEGRAM_ALLOWED_USERS` secret should be quoted user IDs, comma-separated:
 
 ## Deployment
 
-Push to `main` branch and trigger the workflow manually (workflow_dispatch).
+1. **Tag a release** — `git tag v2026.02.XX && git push --tags` triggers the Release workflow, which builds the bridge binary and publishes it to GitHub Releases
+2. **Deploy** — trigger the Deploy workflow manually (workflow_dispatch), which runs `tofu apply` to provision/replace the droplet. Cloud-init downloads the latest release binary at boot.
 
 ### What Gets Deployed
 
@@ -251,6 +246,17 @@ git tag v2026.02.1 && git push --tags
 The patch number increments within a month: `v2026.02.1`, `v2026.02.2`, `v2026.02.3`, etc.
 
 ## Local Development
+
+### Bridge
+
+```bash
+cd bridge-go
+go build -o pai-bridge .
+go test ./...
+go vet ./...
+```
+
+### Infrastructure
 
 ```bash
 cd terraform
