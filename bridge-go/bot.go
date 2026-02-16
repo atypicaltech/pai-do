@@ -347,9 +347,8 @@ func (b *Bot) handleMessage(chatID int64, userID, text string, attachment *Attac
 			return
 		}
 
-		// Message was queued because Claude is busy — acknowledge and return
+		// Message was queued because Claude is busy — silently return
 		if result.Queued > 0 {
-			b.send(chatID, fmt.Sprintf("Queued - %d message(s) waiting.", result.Queued))
 			return
 		}
 
