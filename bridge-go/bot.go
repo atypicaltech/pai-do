@@ -63,8 +63,6 @@ func (b *Bot) Start() {
 		{Command: "start", Description: "Show bridge info"},
 		{Command: "status", Description: "Current session status"},
 		{Command: "clear", Description: "End current session"},
-
-		{Command: "sessions", Description: "List active sessions"},
 	}
 	cmdCfg := tgbotapi.NewSetMyCommands(commands...)
 	b.api.Request(cmdCfg)
@@ -190,17 +188,6 @@ func (b *Bot) handleCommand(msg *tgbotapi.Message, userID string) {
 			b.send(chatID, "No active session.")
 		}
 
-	case "sessions":
-		list := b.sessions.ListSessions()
-		if len(list) == 0 {
-			b.send(chatID, "No active sessions.")
-			return
-		}
-		var lines []string
-		for _, s := range list {
-			lines = append(lines, fmt.Sprintf("%s... | %s | %d msgs | %s", s.ID[:8], s.Status, s.MessageCount, s.WorkDir))
-		}
-		b.send(chatID, "Active sessions:\n\n"+strings.Join(lines, "\n"))
 	}
 }
 

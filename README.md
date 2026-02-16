@@ -208,7 +208,6 @@ The bot registers these commands automatically:
 | `/start` | Show bridge info |
 | `/status` | Current session status |
 | `/clear` | End current session |
-| `/sessions` | List active sessions |
 
 ### Supported Input
 

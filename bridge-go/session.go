@@ -213,17 +213,6 @@ func (sm *SessionManager) KillSession(userID string) bool {
 	return true
 }
 
-func (sm *SessionManager) ListSessions() []*Session {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-
-	var list []*Session
-	for _, s := range sm.sessions {
-		list = append(list, s)
-	}
-	return list
-}
-
 type staleSession struct {
 	userID    string
 	sessionID string
