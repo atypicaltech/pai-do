@@ -312,33 +312,62 @@ func (b *Bot) handleMessage(chatID int64, userID, text string, attachment *Attac
 		return
 	}
 
-	// Send typing indicator
-	typing := tgbotapi.NewChatAction(chatID, tgbotapi.ChatTyping)
-	b.api.Send(typing)
+	// Iterative loop: process the initial message, then any follow-up
+	// batches that accumulated while Claude was working. This avoids
+	// recursive handleMessage calls (which would re-run the rate limiter
+	// and could stack-overflow in pathological cases).
+	curText := text
+	curAttachment := attachment
 
-	// Keep typing indicator alive
-	stopTyping := make(chan struct{})
-	go func() {
-		ticker := time.NewTicker(4 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-stopTyping:
-				return
-			case <-ticker.C:
-				b.api.Send(tgbotapi.NewChatAction(chatID, tgbotapi.ChatTyping))
+	for {
+		// Send typing indicator
+		typing := tgbotapi.NewChatAction(chatID, tgbotapi.ChatTyping)
+		b.api.Send(typing)
+
+		// Keep typing indicator alive
+		stopTyping := make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(4 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-stopTyping:
+					return
+				case <-ticker.C:
+					b.api.Send(tgbotapi.NewChatAction(chatID, tgbotapi.ChatTyping))
+				}
 			}
+		}()
+
+		result, err := b.sessions.SendMessage(userID, curText, curAttachment)
+		close(stopTyping)
+
+		if err != nil {
+			b.send(chatID, fmt.Sprintf("Error: %v", err))
+			return
 		}
-	}()
 
-	result, err := b.sessions.SendMessage(userID, text, attachment)
-	close(stopTyping)
+		// Message was queued because Claude is busy — acknowledge and return
+		if result.Queued > 0 {
+			b.send(chatID, fmt.Sprintf("Queued - %d message(s) waiting.", result.Queued))
+			return
+		}
 
-	if err != nil {
-		b.send(chatID, fmt.Sprintf("Error: %v", err))
-		return
+		b.deliverResult(chatID, result)
+
+		// If there are queued follow-up messages, loop to process them
+		// now that the first response has been delivered to Telegram.
+		if result.FollowUp == nil {
+			return
+		}
+		log.Printf("[PAI Bridge] Processing %d queued follow-up message(s) for user %s", result.FollowUp.Count, userID)
+		curText = result.FollowUp.Text
+		curAttachment = result.FollowUp.Attachment
 	}
+}
 
+// deliverResult sends a Claude response to Telegram: text, voice, and files.
+func (b *Bot) deliverResult(chatID int64, result *MessageResult) {
 	if strings.TrimSpace(result.Text) == "" {
 		b.send(chatID, "(No response from Claude)")
 		return
