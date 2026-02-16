@@ -53,7 +53,7 @@ type Attachment struct {
 type MessageResult struct {
 	Text         string
 	CreatedFiles []string
-	Queued       int // >0 means message was queued; value = queue depth
+	Queued       int       // >0 means message was queued; value = queue depth
 	FollowUp     *FollowUp // non-nil when queued messages need processing after this response
 }
 
@@ -195,7 +195,7 @@ func (sm *SessionManager) KillSession(userID string) bool {
 	}
 
 	// Drain any queued messages so they don't leak
-	sm.drainPending(s)
+	s.drainPending()
 
 	sessionID := s.ID
 	model := s.Model
@@ -380,7 +380,7 @@ func (sm *SessionManager) SendMessage(userID string, text string, attachment *At
 		session.pendingMu.Lock()
 		if len(session.pending) >= maxPendingMessages {
 			session.pendingMu.Unlock()
-			return nil, fmt.Errorf("Too many queued messages (%d). Wait for the current task to finish.", maxPendingMessages)
+			return nil, fmt.Errorf("too many queued messages (%d), wait for the current task to finish", maxPendingMessages)
 		}
 		session.pending = append(session.pending, pendingMessage{Text: text, Attachment: attachment})
 		depth := len(session.pending)
@@ -477,7 +477,7 @@ func (sm *SessionManager) SendMessage(userID string, text string, attachment *At
 		session.Status = "active"
 		sm.saveToDisk()
 		sm.mu.Unlock()
-		sm.drainPending(session)
+		session.drainPending()
 	}
 
 	if useStreamJSON {
@@ -612,12 +612,9 @@ func (sm *SessionManager) SendMessage(userID string, text string, attachment *At
 
 	exitErr := cmd.Wait()
 
-	// Cleanup: drain pending queue BEFORE setting status to "active" to
+	// Cleanup: take pending queue BEFORE setting status to "active" to
 	// close the race window where a new message could steal the session.
-	session.pendingMu.Lock()
-	queued := session.pending
-	session.pending = nil
-	session.pendingMu.Unlock()
+	queued := session.takePending()
 
 	sm.mu.Lock()
 	delete(sm.procs, session.ID)
@@ -634,6 +631,7 @@ func (sm *SessionManager) SendMessage(userID string, text string, attachment *At
 		if len(queued) > 0 {
 			log.Printf("[PAI Bridge] Dropped %d queued message(s) for session %s due to subprocess error", len(queued), session.ID[:8])
 		}
+		queued = nil // release for GC
 		stderrText := stderrBuf.String()
 		if hasResume && strings.Contains(stderrText, "Could not find session") {
 			sm.mu.Lock()
@@ -645,7 +643,7 @@ func (sm *SessionManager) SendMessage(userID string, text string, attachment *At
 		if stderrText != "" {
 			return nil, fmt.Errorf("Claude exited: %s", strings.TrimSpace(stderrText))
 		}
-		return nil, fmt.Errorf("Claude subprocess failed")
+		return nil, fmt.Errorf("claude subprocess failed")
 	}
 
 	// Log the assistant's response
@@ -661,7 +659,7 @@ func (sm *SessionManager) SendMessage(userID string, text string, attachment *At
 	}
 
 	if len(queued) > 0 {
-		batchText, batchAttachment := sm.buildBatch(queued)
+		batchText, batchAttachment := session.buildBatch(queued)
 		if batchText != "" || batchAttachment != nil {
 			log.Printf("[PAI Bridge] %d queued message(s) ready for follow-up (user %s)", len(queued), userID)
 			result.FollowUp = &FollowUp{
@@ -679,7 +677,7 @@ func (sm *SessionManager) SendMessage(userID string, text string, attachment *At
 // message has a binary attachment, only the last one is kept (text attachments
 // are inlined into the prompt text). Returns empty string if all messages were
 // empty (no text, no attachments).
-func (sm *SessionManager) buildBatch(msgs []pendingMessage) (string, *Attachment) {
+func (s *Session) buildBatch(msgs []pendingMessage) (string, *Attachment) {
 	var parts []string
 	var binaryAttachment *Attachment
 
@@ -715,13 +713,20 @@ func (sm *SessionManager) buildBatch(msgs []pendingMessage) (string, *Attachment
 
 // drainPending discards any queued messages (used on error paths where we
 // can't process them). Logs a warning if messages were dropped.
-func (sm *SessionManager) drainPending(session *Session) {
-	session.pendingMu.Lock()
-	dropped := len(session.pending)
-	session.pending = nil
-	session.pendingMu.Unlock()
-	if dropped > 0 {
-		log.Printf("[PAI Bridge] Dropped %d queued message(s) for session %s due to error", dropped, session.ID[:8])
+// takePending atomically removes and returns all queued messages.
+func (s *Session) takePending() []pendingMessage {
+	s.pendingMu.Lock()
+	msgs := s.pending
+	s.pending = nil
+	s.pendingMu.Unlock()
+	return msgs
+}
+
+// drainPending discards any queued messages (used on error paths where we
+// can't process them). Logs a warning if messages were dropped.
+func (s *Session) drainPending() {
+	if dropped := len(s.takePending()); dropped > 0 {
+		log.Printf("[PAI Bridge] Dropped %d queued message(s) for session %s due to error", dropped, s.ID[:8])
 	}
 }
 

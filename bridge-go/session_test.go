@@ -271,11 +271,11 @@ func newTestSessionManager() *SessionManager {
 }
 
 func TestBuildBatch_SingleTextMessage(t *testing.T) {
-	sm := newTestSessionManager()
+	session := &Session{ID: "test-session-id"}
 	msgs := []pendingMessage{
 		{Text: "check the logs"},
 	}
-	text, att := sm.buildBatch(msgs)
+	text, att := session.buildBatch(msgs)
 	if att != nil {
 		t.Error("expected no attachment")
 	}
@@ -291,13 +291,13 @@ func TestBuildBatch_SingleTextMessage(t *testing.T) {
 }
 
 func TestBuildBatch_MultipleTextMessages(t *testing.T) {
-	sm := newTestSessionManager()
+	session := &Session{ID: "test-session-id"}
 	msgs := []pendingMessage{
 		{Text: "also check the logs"},
 		{Text: "and restart the service"},
 		{Text: "bump the version too"},
 	}
-	text, att := sm.buildBatch(msgs)
+	text, att := session.buildBatch(msgs)
 	if att != nil {
 		t.Error("expected no attachment")
 	}
@@ -321,7 +321,7 @@ func TestBuildBatch_MultipleTextMessages(t *testing.T) {
 }
 
 func TestBuildBatch_TextFileAttachment(t *testing.T) {
-	sm := newTestSessionManager()
+	session := &Session{ID: "test-session-id"}
 	msgs := []pendingMessage{
 		{
 			Text: "review this",
@@ -332,7 +332,7 @@ func TestBuildBatch_TextFileAttachment(t *testing.T) {
 			},
 		},
 	}
-	text, att := sm.buildBatch(msgs)
+	text, att := session.buildBatch(msgs)
 	if att != nil {
 		t.Error("text-file attachment should be inlined, not returned as binary")
 	}
@@ -345,7 +345,7 @@ func TestBuildBatch_TextFileAttachment(t *testing.T) {
 }
 
 func TestBuildBatch_TextFileAttachment_DefaultLabel(t *testing.T) {
-	sm := newTestSessionManager()
+	session := &Session{ID: "test-session-id"}
 	msgs := []pendingMessage{
 		{
 			Text: "look at this",
@@ -355,21 +355,21 @@ func TestBuildBatch_TextFileAttachment_DefaultLabel(t *testing.T) {
 			},
 		},
 	}
-	text, _ := sm.buildBatch(msgs)
+	text, _ := session.buildBatch(msgs)
 	if !strings.Contains(text, "--- document ---") {
 		t.Errorf("should use default label 'document': %q", text)
 	}
 }
 
 func TestBuildBatch_BinaryAttachment_LastOneWins(t *testing.T) {
-	sm := newTestSessionManager()
+	session := &Session{ID: "test-session-id"}
 	img1 := &Attachment{Type: "image", Base64: "aaa", MimeType: "image/png"}
 	img2 := &Attachment{Type: "image", Base64: "bbb", MimeType: "image/jpeg"}
 	msgs := []pendingMessage{
 		{Text: "first image", Attachment: img1},
 		{Text: "second image", Attachment: img2},
 	}
-	text, att := sm.buildBatch(msgs)
+	text, att := session.buildBatch(msgs)
 	if att == nil {
 		t.Fatal("expected binary attachment")
 	}
@@ -382,13 +382,13 @@ func TestBuildBatch_BinaryAttachment_LastOneWins(t *testing.T) {
 }
 
 func TestBuildBatch_AllEmptyMessages(t *testing.T) {
-	sm := newTestSessionManager()
+	session := &Session{ID: "test-session-id"}
 	msgs := []pendingMessage{
 		{Text: ""},
 		{Text: ""},
 		{Text: ""},
 	}
-	text, att := sm.buildBatch(msgs)
+	text, att := session.buildBatch(msgs)
 	if text != "" {
 		t.Errorf("expected empty string for all-empty batch, got: %q", text)
 	}
@@ -398,13 +398,13 @@ func TestBuildBatch_AllEmptyMessages(t *testing.T) {
 }
 
 func TestBuildBatch_MixedEmptyAndNonEmpty(t *testing.T) {
-	sm := newTestSessionManager()
+	session := &Session{ID: "test-session-id"}
 	msgs := []pendingMessage{
 		{Text: ""},
 		{Text: "actual message"},
 		{Text: ""},
 	}
-	text, _ := sm.buildBatch(msgs)
+	text, _ := session.buildBatch(msgs)
 	if text == "" {
 		t.Error("should not be empty when at least one message has text")
 	}
@@ -421,12 +421,12 @@ func TestBuildBatch_MixedEmptyAndNonEmpty(t *testing.T) {
 }
 
 func TestBuildBatch_EmptyTextWithBinaryAttachment(t *testing.T) {
-	sm := newTestSessionManager()
+	session := &Session{ID: "test-session-id"}
 	img := &Attachment{Type: "image", Base64: "data", MimeType: "image/png"}
 	msgs := []pendingMessage{
 		{Text: "", Attachment: img},
 	}
-	text, att := sm.buildBatch(msgs)
+	text, att := session.buildBatch(msgs)
 	// Text is empty but there's a binary attachment — should NOT return empty
 	if att == nil {
 		t.Error("should return the binary attachment")
@@ -439,7 +439,6 @@ func TestBuildBatch_EmptyTextWithBinaryAttachment(t *testing.T) {
 }
 
 func TestDrainPending_ClearsQueue(t *testing.T) {
-	sm := newTestSessionManager()
 	session := &Session{ID: "test-session-id"}
 	session.pending = []pendingMessage{
 		{Text: "msg1"},
@@ -447,7 +446,7 @@ func TestDrainPending_ClearsQueue(t *testing.T) {
 		{Text: "msg3"},
 	}
 
-	sm.drainPending(session)
+	session.drainPending()
 
 	if len(session.pending) != 0 {
 		t.Errorf("pending should be empty after drain, got %d", len(session.pending))
@@ -455,20 +454,18 @@ func TestDrainPending_ClearsQueue(t *testing.T) {
 }
 
 func TestDrainPending_NilQueue(t *testing.T) {
-	sm := newTestSessionManager()
 	session := &Session{ID: "test-session-id"}
 	// pending is nil by default — should not panic
-	sm.drainPending(session)
+	session.drainPending()
 	if session.pending != nil {
 		t.Error("pending should remain nil")
 	}
 }
 
 func TestDrainPending_EmptyQueue(t *testing.T) {
-	sm := newTestSessionManager()
 	session := &Session{ID: "test-session-id"}
 	session.pending = []pendingMessage{}
-	sm.drainPending(session)
+	session.drainPending()
 	if len(session.pending) != 0 {
 		t.Errorf("pending should be empty, got %d", len(session.pending))
 	}
@@ -499,7 +496,7 @@ func TestQueueDepthCap(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when queue is full")
 	}
-	if !strings.Contains(err.Error(), "Too many queued messages") {
+	if !strings.Contains(err.Error(), "too many queued messages") {
 		t.Errorf("unexpected error message: %v", err)
 	}
 
@@ -557,7 +554,7 @@ func TestConcurrentQueueSafety(t *testing.T) {
 
 	rejections := 0
 	for err := range errors {
-		if strings.Contains(err.Error(), "Too many queued messages") {
+		if strings.Contains(err.Error(), "too many queued messages") {
 			rejections++
 		} else {
 			t.Errorf("unexpected error: %v", err)
@@ -602,7 +599,7 @@ func TestConcurrentQueueAndDrain(t *testing.T) {
 	// Consumer: drain concurrently
 	go func() {
 		defer wg.Done()
-		sm.drainPending(session)
+		session.drainPending()
 	}()
 
 	wg.Wait()
@@ -636,13 +633,10 @@ func TestQueuedMessagePreservesAttachment(t *testing.T) {
 		t.Fatalf("expected Queued=1, got %d", result.Queued)
 	}
 
-	// Simulate drain
-	session.pendingMu.Lock()
-	queued := session.pending
-	session.pending = nil
-	session.pendingMu.Unlock()
+	// Simulate drain using takePending
+	queued := session.takePending()
 
-	text, att := sm.buildBatch(queued)
+	text, att := session.buildBatch(queued)
 	if att == nil {
 		t.Fatal("binary attachment should be preserved through queue")
 	}
