@@ -32,6 +32,10 @@ The bridge is a lightweight Go binary (~10MB) that:
 
 Claude Code runs against your subscription (Pro/Max), not metered API.
 
+### Message Queue
+
+When a message arrives while Claude is already processing, the bridge queues it instead of spawning a second subprocess. Multiple queued messages are batched into a single follow-up prompt once the active response is delivered. Queue depth is capped at 20 messages.
+
 ## Memory System
 
 The bridge implements multi-layer memory for session continuity:
@@ -70,7 +74,7 @@ Voice is configured in `settings.json` under `telegramBridge.voice`:
     "voice": {
       "enabled": true,
       "voice_id": "pDxcmDdBPmpAPjBko2mF",
-      "model": "eleven_v2_5_flash"
+      "model": "eleven_turbo_v2_5"
     }
   }
 }
