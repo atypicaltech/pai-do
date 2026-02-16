@@ -2,13 +2,15 @@
 
 Self-hosted Claude Code + Telegram Bridge on DigitalOcean, deployed via OpenTofu and GitHub Actions.
 
+![Architecture](architecture.png)
+
 ## Architecture
 
 - **Compute**: DigitalOcean Droplet (s-2vcpu-4gb, Ubuntu 24.04)
 - **Storage**: 10GB persistent DO Volume at `/mnt/pai-data`
 - **Network**: Tailscale VPN mesh (zero inbound firewall rules, no public exposure)
 - **Security**: Privilege separation (bridge=root, Claude=pai), metadata API blocked, UFW on tailscale0 only, fail2ban
-- **Runtime**: Claude Code (native binary) + PAI Bridge (Go static binary)
+- **Runtime**: Claude Code (native binary) + PAI Bridge (Go static binary) + [Personal AI Infrastructure](https://github.com/danielmiessler/Personal_AI_Infrastructure)
 - **Interface**: Telegram bot via TelegramBridge daemon
 - **Voice**: ElevenLabs TTS → OGG/OPUS → Telegram voice notes (optional)
 - **Auth**: Claude subscription via OAuth token (no metered API billing)
@@ -16,21 +18,23 @@ Self-hosted Claude Code + Telegram Bridge on DigitalOcean, deployed via OpenTofu
 
 ## How It Works
 
-```
-You (Telegram) → Bot API → TelegramBridge (root) → Claude Code CLI (pai) → Anthropic API
-                                                           ↓
-                                                    /home/pai/projects (unprivileged)
-```
-
 The bridge is a lightweight Go binary (~10MB) that:
 1. Long-polls Telegram for messages
-2. Spawns `claude -p` subprocesses per message
+2. Spawns `claude -p` subprocesses per session
 3. Streams responses back to Telegram with HTML formatting
 4. Manages conversation sessions with `--resume`
 5. Logs conversations, generates summaries, and injects prior context into new sessions
 6. Synthesizes voice responses via ElevenLabs when Claude outputs `VOICE:` directives
 
 Claude Code runs against your subscription (Pro/Max), not metered API.
+
+### Personal AI Infrastructure
+
+This project builds on [Daniel Miessler's Personal AI Infrastructure](https://github.com/danielmiessler/Personal_AI_Infrastructure) (PAI), which provides the skill system, agent definitions, hooks, and memory architecture that Claude Code uses. PAI is installed on the persistent volume after the droplet is provisioned, and is managed by the agent itself across sessions.
+
+### Message Queue
+
+When a message arrives while Claude is already processing, the bridge queues it instead of spawning a second subprocess. Multiple queued messages are batched into a single follow-up prompt once the active response is delivered. Queue depth is capped at 20 messages.
 
 ## Memory System
 
@@ -70,7 +74,7 @@ Voice is configured in `settings.json` under `telegramBridge.voice`:
     "voice": {
       "enabled": true,
       "voice_id": "pDxcmDdBPmpAPjBko2mF",
-      "model": "eleven_v2_5_flash"
+      "model": "eleven_turbo_v2_5"
     }
   }
 }
@@ -143,7 +147,8 @@ The `TELEGRAM_ALLOWED_USERS` secret should be quoted user IDs, comma-separated:
 
 ## Deployment
 
-Push to `main` branch and trigger the workflow manually (workflow_dispatch).
+1. **Tag a release** — `git tag v2026.02.XX && git push --tags` triggers the Release workflow, which builds the bridge binary and publishes it to GitHub Releases
+2. **Deploy** — trigger the Deploy workflow manually (workflow_dispatch), which runs `tofu apply` to provision/replace the droplet. Cloud-init downloads the latest release binary at boot.
 
 ### What Gets Deployed
 
@@ -203,7 +208,6 @@ The bot registers these commands automatically:
 | `/start` | Show bridge info |
 | `/status` | Current session status |
 | `/clear` | End current session |
-| `/cd /path` | Change working directory |
 | `/sessions` | List active sessions |
 
 ### Supported Input
@@ -242,6 +246,17 @@ git tag v2026.02.1 && git push --tags
 The patch number increments within a month: `v2026.02.1`, `v2026.02.2`, `v2026.02.3`, etc.
 
 ## Local Development
+
+### Bridge
+
+```bash
+cd bridge-go
+go build -o pai-bridge .
+go test ./...
+go vet ./...
+```
+
+### Infrastructure
 
 ```bash
 cd terraform
