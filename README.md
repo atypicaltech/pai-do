@@ -2,6 +2,8 @@
 
 Self-hosted Claude Code + Telegram Bridge on DigitalOcean, deployed via OpenTofu and GitHub Actions.
 
+![Architecture](architecture.png)
+
 ## Architecture
 
 - **Compute**: DigitalOcean Droplet (s-2vcpu-4gb, Ubuntu 24.04)
