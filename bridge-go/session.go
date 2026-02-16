@@ -54,6 +54,15 @@ type MessageResult struct {
 	Text         string
 	CreatedFiles []string
 	Queued       int // >0 means message was queued; value = queue depth
+	FollowUp     *FollowUp // non-nil when queued messages need processing after this response
+}
+
+// FollowUp carries batched queued messages back to the bot layer so it can
+// deliver the first response to Telegram before starting the next Claude run.
+type FollowUp struct {
+	Text       string
+	Attachment *Attachment
+	Count      int // number of queued messages in this batch
 }
 
 type SessionManager struct {
@@ -615,33 +624,30 @@ func (sm *SessionManager) SendMessage(userID string, text string, attachment *At
 	}
 
 	// Drain any messages that queued while Claude was working.
-	// Concatenate them into a single follow-up prompt so Claude sees
-	// all the queued messages together in one invocation.
+	// Instead of recursing here (which would block the first response from
+	// reaching Telegram), package them as a FollowUp for the bot layer to
+	// process after delivering this response.
 	session.pendingMu.Lock()
 	queued := session.pending
 	session.pending = nil
 	session.pendingMu.Unlock()
 
+	result := &MessageResult{
+		Text:         fullResponse.String(),
+		CreatedFiles: createdFiles,
+	}
+
 	if len(queued) > 0 {
 		batchText, batchAttachment := sm.buildBatch(queued)
-		log.Printf("[PAI Bridge] Processing %d queued message(s) for user %s", len(queued), userID)
-
-		batchResult, batchErr := sm.SendMessage(userID, batchText, batchAttachment)
-		if batchErr != nil {
-			// Return the first response but log the batch error
-			log.Printf("[PAI Bridge] Batch follow-up failed for user %s: %v", userID, batchErr)
-		} else if batchResult != nil && batchResult.Text != "" {
-			// Append the batch response so the caller can deliver both
-			fullResponse.WriteString("\n\n---\n\n")
-			fullResponse.WriteString(batchResult.Text)
-			createdFiles = append(createdFiles, batchResult.CreatedFiles...)
+		log.Printf("[PAI Bridge] %d queued message(s) ready for follow-up (user %s)", len(queued), userID)
+		result.FollowUp = &FollowUp{
+			Text:       batchText,
+			Attachment: batchAttachment,
+			Count:      len(queued),
 		}
 	}
 
-	return &MessageResult{
-		Text:         fullResponse.String(),
-		CreatedFiles: createdFiles,
-	}, nil
+	return result, nil
 }
 
 // buildBatch concatenates queued messages into a single prompt. If any queued

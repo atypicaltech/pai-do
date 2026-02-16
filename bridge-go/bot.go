@@ -407,6 +407,13 @@ func (b *Bot) handleMessage(chatID int64, userID, text string, attachment *Attac
 			}
 		}
 	}
+
+	// If there are queued follow-up messages, process them now that
+	// the first response has been delivered to Telegram.
+	if result.FollowUp != nil {
+		log.Printf("[PAI Bridge] Processing %d queued follow-up message(s) for user %s", result.FollowUp.Count, userID)
+		b.handleMessage(chatID, userID, result.FollowUp.Text, result.FollowUp.Attachment)
+	}
 }
 
 // --- Auth & Rate Limiting ---
