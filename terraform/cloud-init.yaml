@@ -1,5 +1,5 @@
 #cloud-config
-# PAI infrastructure - v2026.02.18
+# PAI infrastructure - v2026.02.19
 package_update: true
 package_upgrade: true
 
@@ -10,6 +10,13 @@ packages:
   - jq
   - ffmpeg
   - unzip
+  - golang-go
+  - nmap
+  - masscan
+  - nikto
+  - sqlmap
+  - dnsrecon
+  - hydra
 
 write_files:
   # Secrets file - root-only, consumed by systemd EnvironmentFile
@@ -125,7 +132,7 @@ write_files:
       User=root
       EnvironmentFile=/etc/pai/secrets.env
       Environment=HOME=/root
-      Environment=PATH=/home/pai/.local/bin:/usr/local/bin:/usr/bin:/bin
+      Environment=PATH=/home/pai/.local/bin:/home/pai/go/bin:/usr/local/bin:/usr/bin:/bin
       Environment=PAI_DIR=/mnt/pai-data/claude
       Environment=CLAUDE_PATH=/home/pai/.local/bin/claude
       Environment=CLAUDE_USER_HOME=/home/pai
@@ -290,6 +297,64 @@ write_files:
         && log "Bun installed at /home/pai/.bun/bin/bun" \
         || log "WARNING: Bun install failed (non-fatal)"
 
+      # 1e. Install security/pentesting tools (Go binaries as pai user)
+      log "Installing security tools..."
+      export GOPATH=/home/pai/go
+      export PATH="$PATH:/usr/lib/go/bin:/home/pai/go/bin"
+
+      # ProjectDiscovery suite
+      su - pai -c 'export GOPATH=/home/pai/go && export PATH="$PATH:/usr/lib/go/bin:/home/pai/go/bin" && \
+        go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest && \
+        go install github.com/projectdiscovery/httpx/cmd/httpx@latest && \
+        go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
+        go install github.com/projectdiscovery/naabu/v2/cmd/naabu@latest && \
+        go install github.com/projectdiscovery/katana/cmd/katana@latest && \
+        go install github.com/projectdiscovery/dnsx/cmd/dnsx@latest && \
+        go install github.com/projectdiscovery/tlsx/cmd/tlsx@latest && \
+        go install github.com/projectdiscovery/cdncheck/cmd/cdncheck@latest && \
+        go install github.com/projectdiscovery/asnmap/cmd/asnmap@latest && \
+        go install github.com/projectdiscovery/mapcidr/cmd/mapcidr@latest && \
+        go install github.com/projectdiscovery/pdtm/cmd/pdtm@latest' \
+        && log "ProjectDiscovery tools installed" \
+        || log "WARNING: Some ProjectDiscovery tools failed to install (non-fatal)"
+
+      # Fuzzing and content discovery
+      su - pai -c 'export GOPATH=/home/pai/go && export PATH="$PATH:/usr/lib/go/bin:/home/pai/go/bin" && \
+        go install github.com/ffuf/ffuf/v2@latest' \
+        && log "ffuf installed" \
+        || log "WARNING: ffuf install failed (non-fatal)"
+
+      # URL harvesting
+      su - pai -c 'export GOPATH=/home/pai/go && export PATH="$PATH:/usr/lib/go/bin:/home/pai/go/bin" && \
+        go install github.com/tomnomnom/waybackurls@latest && \
+        go install github.com/lc/gau/v2/cmd/gau@latest' \
+        && log "URL harvesting tools installed" \
+        || log "WARNING: URL harvesting tools failed to install (non-fatal)"
+
+      # Secret detection
+      su - pai -c 'export GOPATH=/home/pai/go && export PATH="$PATH:/usr/lib/go/bin:/home/pai/go/bin" && \
+        go install github.com/trufflesecurity/trufflehog/v3@latest && \
+        go install github.com/gitleaks/gitleaks/v8@latest' \
+        && log "Secret detection tools installed" \
+        || log "WARNING: Secret detection tools failed to install (non-fatal)"
+
+      # Web crawling and utilities
+      su - pai -c 'export GOPATH=/home/pai/go && export PATH="$PATH:/usr/lib/go/bin:/home/pai/go/bin" && \
+        go install github.com/jaeles-project/gospider@latest && \
+        go install github.com/tomnomnom/anew@latest && \
+        go install github.com/tomnomnom/qsreplace@latest && \
+        go install github.com/tomnomnom/unfurl@latest' \
+        && log "Web crawling and utility tools installed" \
+        || log "WARNING: Web utility tools failed to install (non-fatal)"
+
+      # testssl.sh (bash script, no build needed)
+      if [ ! -d /opt/testssl ]; then
+        git clone --depth 1 https://github.com/drwetter/testssl.sh.git /opt/testssl \
+          && ln -sf /opt/testssl/testssl.sh /usr/local/bin/testssl \
+          && log "testssl.sh installed" \
+          || log "WARNING: testssl.sh install failed (non-fatal)"
+      fi
+
       # 2. Download pre-built PAI Bridge binary from latest release (with integrity check)
       log "Downloading PAI Bridge binary..."
       curl -fsSL -o /usr/local/bin/pai-bridge \
@@ -304,14 +369,21 @@ write_files:
       chmod +x /usr/local/bin/pai-bridge
       log "PAI Bridge installed and verified at /usr/local/bin/pai-bridge"
 
-      # 3. Create state directories on persistent volume
+      # 3. Configure PATH for pai user sessions (security tools + Go binaries)
+      if ! grep -q 'go/bin' /home/pai/.bashrc 2>/dev/null; then
+        echo 'export PATH="/home/pai/go/bin:/usr/local/bin:$PATH"' >> /home/pai/.bashrc
+      fi
+      chown pai:pai /home/pai/.bashrc
+      log "Security tools PATH configured for pai user"
+
+      # 4. Create state directories on persistent volume
       mkdir -p /mnt/pai-data/claude/skills/TelegramBridge/state
       mkdir -p /mnt/pai-data/memory/conversations
       mkdir -p /mnt/pai-data/memory/summaries
       mkdir -p /mnt/pai-data/memory/daily
       chown -R pai:pai /mnt/pai-data
 
-      # 4. Enable and start the bridge service
+      # 5. Enable and start the bridge service
       log "Starting PAI Telegram Bridge service..."
       systemctl daemon-reload
       systemctl enable pai-telegram-bridge
