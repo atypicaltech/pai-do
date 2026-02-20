@@ -145,7 +145,12 @@ build {
       "tar -xzf /tmp/trufflehog.tar.gz -C /home/pai/.local/bin/ trufflehog",
       "chmod +x /home/pai/.local/bin/trufflehog",
       "rm -f /tmp/trufflehog.tar.gz",
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/gitleaks/gitleaks/v8@latest'",
+      # gitleaks: go install fails due to module path mismatch after repo rename, use pre-built binary
+      "GITLEAKS_VERSION=$(curl -fsSL https://api.github.com/repos/gitleaks/gitleaks/releases/latest | jq -r '.tag_name' | sed 's/^v//')",
+      "curl -fsSL \"https://github.com/gitleaks/gitleaks/releases/download/v$${GITLEAKS_VERSION}/gitleaks_$${GITLEAKS_VERSION}_linux_x64.tar.gz\" -o /tmp/gitleaks.tar.gz",
+      "tar -xzf /tmp/gitleaks.tar.gz -C /home/pai/.local/bin/ gitleaks",
+      "chmod +x /home/pai/.local/bin/gitleaks",
+      "rm -f /tmp/gitleaks.tar.gz",
     ]
   }
 
