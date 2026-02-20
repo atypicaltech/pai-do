@@ -131,7 +131,12 @@ build {
   # 10. Secret detection
   provisioner "shell" {
     inline = [
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/lib/go/bin:/home/pai/go/bin\" && go install github.com/trufflesecurity/trufflehog/v3@latest'",
+      # trufflehog: go install fails due to replace directives in go.mod, use pre-built binary
+      "TRUFFLEHOG_VERSION=$(curl -fsSL https://api.github.com/repos/trufflesecurity/trufflehog/releases/latest | jq -r '.tag_name' | sed 's/^v//')",
+      "curl -fsSL \"https://github.com/trufflesecurity/trufflehog/releases/download/v$${TRUFFLEHOG_VERSION}/trufflehog_$${TRUFFLEHOG_VERSION}_linux_amd64.tar.gz\" -o /tmp/trufflehog.tar.gz",
+      "tar -xzf /tmp/trufflehog.tar.gz -C /home/pai/.local/bin/ trufflehog",
+      "chmod +x /home/pai/.local/bin/trufflehog",
+      "rm -f /tmp/trufflehog.tar.gz",
       "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/lib/go/bin:/home/pai/go/bin\" && go install github.com/gitleaks/gitleaks/v8@latest'",
     ]
   }
