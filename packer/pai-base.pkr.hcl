@@ -203,4 +203,9 @@ build {
       "rm -rf /root/.cache",
     ]
   }
+
+  post-processor "manifest" {
+    output     = "manifest.json"
+    strip_path = true
+  }
 }

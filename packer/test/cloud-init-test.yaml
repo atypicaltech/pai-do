@@ -1,0 +1,21 @@
+#cloud-config
+# PAI test VM - validates Packer base image
+# No bridge, no volume, no secrets - just Tailscale + tool validation
+
+runcmd:
+  # Start fail2ban (config baked into snapshot)
+  - systemctl enable fail2ban
+  - systemctl start fail2ban
+
+  # Setup UFW firewall - SSH only via Tailscale
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow in on tailscale0 to any port 22
+  - ufw --force enable
+
+  # Join tailnet with test hostname
+  - tailscale up --auth-key="${tailscale_auth_key}" --hostname=pai-test --ssh
+
+  # SSH hardening
+  - sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+  - systemctl restart ssh
