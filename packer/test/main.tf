@@ -26,7 +26,11 @@ resource "digitalocean_droplet" "pai_test" {
   tags     = ["pai", "test", "packer"]
 
   user_data = templatefile("${path.module}/cloud-init-test.yaml", {
-    tailscale_auth_key = var.tailscale_auth_key
+    claude_oauth_token     = var.claude_oauth_token
+    telegram_bot_token     = var.telegram_bot_token
+    telegram_allowed_users = var.telegram_allowed_users
+    tailscale_auth_key     = var.tailscale_auth_key
+    elevenlabs_api_key     = var.elevenlabs_api_key
   })
 }
 

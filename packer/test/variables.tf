@@ -20,6 +20,31 @@ variable "tailscale_auth_key" {
   sensitive   = true
 }
 
+variable "claude_oauth_token" {
+  description = "Claude Code OAuth token"
+  type        = string
+  sensitive   = true
+}
+
+variable "telegram_bot_token" {
+  description = "Telegram bot token"
+  type        = string
+  sensitive   = true
+}
+
+variable "telegram_allowed_users" {
+  description = "Comma-separated Telegram user IDs"
+  type        = string
+  default     = ""
+}
+
+variable "elevenlabs_api_key" {
+  description = "ElevenLabs API key for TTS"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 variable "region" {
   description = "DigitalOcean region"
   type        = string

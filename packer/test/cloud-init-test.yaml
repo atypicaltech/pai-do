@@ -1,21 +1,265 @@
 #cloud-config
-# PAI test VM - validates Packer base image
-# No bridge, no volume, no secrets - just Tailscale + tool validation
+# PAI test VM - validates Packer snapshot with production-like cloud-init
+# Everything that moved to the Packer build is stripped out.
+# Bridge is installed and enabled but NOT started (no competing bot instance).
+# No real volume — /mnt/pai-data created as local dir for symlink/settings testing.
+
+write_files:
+  # Secrets file - root-only, consumed by systemd EnvironmentFile
+  - path: /etc/pai/secrets.env
+    permissions: '0400'
+    owner: root:root
+    content: |
+      CLAUDE_CODE_OAUTH_TOKEN=${claude_oauth_token}
+      TELEGRAM_BOT_TOKEN=${telegram_bot_token}
+      ELEVENLABS_API_KEY=${elevenlabs_api_key}
+
+  # Claude Code settings.json - Terraform source of truth
+  # Staged to temp path; merged into volume config by setup-pai.sh
+  - path: /tmp/pai-settings-source.json
+    permissions: '0600'
+    content: |
+      {
+        "permissions": {
+          "allow": [
+            "Bash",
+            "Read",
+            "Write",
+            "Edit",
+            "MultiEdit",
+            "Glob",
+            "Grep",
+            "LS",
+            "WebFetch",
+            "WebSearch",
+            "NotebookRead",
+            "NotebookEdit",
+            "TodoWrite",
+            "EnterPlanMode",
+            "ExitPlanMode",
+            "Task",
+            "Skill",
+            "TeamCreate",
+            "TeamDelete",
+            "SendMessage",
+            "mcp__*"
+          ]
+        },
+        "env": {
+          "TELEGRAM_BOT_TOKEN": "INJECTED_AT_BOOT"
+        },
+        "telegramBridge": {
+          "enabled": true,
+          "allowed_users": [${telegram_allowed_users}],
+          "polling_mode": "long-polling",
+          "sessions": {
+            "timeout_minutes": 240,
+            "max_concurrent": 2,
+            "default_work_dir": "/home/pai/projects",
+            "default_model": "claude-opus-4-6",
+            "reset_hour": 4,
+            "timezone": "America/New_York"
+          },
+          "security": {
+            "require_passphrase": false,
+            "rate_limit_per_minute": 10
+          },
+          "response": {
+            "format": "full",
+            "forward_progress": true
+          },
+          "server": {
+            "port": 7777
+          },
+          "voice": {
+            "enabled": true,
+            "voice_id": "pDxcmDdBPmpAPjBko2mF",
+            "model": "eleven_turbo_v2_5"
+          }
+        }
+      }
+
+  # Claude Code onboarding bypass for headless auth (pai user runs Claude)
+  - path: /home/pai/.claude.json
+    permissions: '0600'
+    content: |
+      {
+        "hasCompletedOnboarding": true
+      }
+
+  # PAI Telegram Bridge systemd service
+  - path: /etc/systemd/system/pai-telegram-bridge.service
+    content: |
+      [Unit]
+      Description=PAI Telegram Bridge
+      After=network-online.target
+      Wants=network-online.target
+      RequiresMountsFor=/mnt/pai-data
+
+      [Service]
+      Type=simple
+      User=root
+      EnvironmentFile=/etc/pai/secrets.env
+      Environment=HOME=/root
+      Environment=PATH=/home/pai/.pdtm/go/bin:/home/pai/.local/bin:/home/pai/go/bin:/usr/local/bin:/usr/bin:/bin
+      Environment=PAI_DIR=/mnt/pai-data/claude
+      Environment=CLAUDE_PATH=/home/pai/.local/bin/claude
+      Environment=CLAUDE_USER_HOME=/home/pai
+      ExecStartPre=/bin/test -d /mnt/pai-data/claude
+      ExecStartPre=/bin/test -f /mnt/pai-data/claude/settings.json
+      ExecStart=/usr/local/bin/pai-bridge
+      Restart=always
+      RestartSec=10
+      StandardOutput=journal
+      StandardError=journal
+
+      # Sandboxing
+      ProtectKernelTunables=true
+      ProtectKernelModules=true
+      ProtectControlGroups=true
+
+      [Install]
+      WantedBy=multi-user.target
+
+  # PAI setup script (slimmed — tools baked into Packer snapshot)
+  - path: /root/setup-pai.sh
+    permissions: '0700'
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+      export HOME=/root
+      export PATH="$PATH:/usr/local/bin:/root/.local/bin"
+      LOG=/var/log/pai-setup.log
+
+      log() { echo "$(date): $1" >> $LOG; }
+
+      log "Starting PAI setup (Packer-based image)"
+
+      # Ensure pai user exists (should be baked into snapshot)
+      if ! id pai &>/dev/null; then
+        useradd --system --shell /bin/bash --home-dir /home/pai --create-home pai
+        log "Created pai user"
+      fi
+      chown pai:pai /home/pai
+
+      # TEST MODE: Create /mnt/pai-data as local dir (no volume in test)
+      # In production, this is a DO volume mount
+      mkdir -p /mnt/pai-data
+      log "Created /mnt/pai-data (test mode — no volume)"
+
+      # Set up persistent storage directories and ownership
+      log "Setting up persistent storage..."
+      mkdir -p /mnt/pai-data/claude
+      mkdir -p /mnt/pai-data/projects
+      chown -R pai:pai /mnt/pai-data/claude /mnt/pai-data/projects
+
+      # Symlinks for pai user (Claude Code runs as pai)
+      PAI_HOME=/home/pai
+      if [ ! -L "$PAI_HOME/.claude" ]; then
+        rm -rf "$PAI_HOME/.claude" 2>/dev/null || true
+        ln -s /mnt/pai-data/claude "$PAI_HOME/.claude"
+        log "Created symlink $PAI_HOME/.claude -> /mnt/pai-data/claude"
+      fi
+
+      if [ ! -L "$PAI_HOME/projects" ]; then
+        rm -rf "$PAI_HOME/projects" 2>/dev/null || true
+        ln -s /mnt/pai-data/projects "$PAI_HOME/projects"
+        log "Created symlink $PAI_HOME/projects -> /mnt/pai-data/projects"
+      fi
+
+      # Onboarding bypass ownership
+      chown pai:pai "$PAI_HOME/.claude.json" 2>/dev/null || true
+
+      # Merge Terraform config into existing settings.json (preserves server-side keys)
+      SETTINGS="/mnt/pai-data/claude/settings.json"
+      SOURCE="/tmp/pai-settings-source.json"
+      if [ -f "$SOURCE" ]; then
+        if [ -f "$SETTINGS" ]; then
+          log "Merging Terraform config into existing settings.json..."
+          jq -s '.[0] * .[1]' "$SETTINGS" "$SOURCE" > "$${SETTINGS}.tmp" \
+            && mv "$${SETTINGS}.tmp" "$SETTINGS"
+        else
+          log "No existing settings.json, using Terraform config as-is..."
+          cp "$SOURCE" "$SETTINGS"
+        fi
+        chmod 600 "$SETTINGS"
+        rm -f "$SOURCE"
+        log "Settings merged successfully"
+      fi
+
+      # Inject secrets into settings.json from the secrets env file
+      if [ -f /etc/pai/secrets.env ]; then
+        source /etc/pai/secrets.env
+        if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -f "$SETTINGS" ]; then
+          jq --arg token "$TELEGRAM_BOT_TOKEN" '.env.TELEGRAM_BOT_TOKEN = $token' "$SETTINGS" > "$${SETTINGS}.tmp" \
+            && mv "$${SETTINGS}.tmp" "$SETTINGS"
+          chmod 600 "$SETTINGS"
+          log "Injected bot token into settings.json from secrets.env"
+        fi
+      fi
+
+      # Install Claude Code as pai user (always want latest version)
+      log "Installing Claude Code as pai user..."
+      su - pai -c 'curl -fsSL https://claude.ai/install.sh | bash'
+      CLAUDE_PATH="/home/pai/.local/bin/claude"
+      if [ ! -f "$CLAUDE_PATH" ]; then
+        log "ERROR: Claude Code CLI not found at $CLAUDE_PATH after install"
+        exit 1
+      fi
+      CLAUDE_VERSION=$(su - pai -c 'claude --version 2>/dev/null' || echo "unknown")
+      log "Claude Code installed at $CLAUDE_PATH ($CLAUDE_VERSION)"
+
+      # Download pre-built PAI Bridge binary from latest release (with integrity check)
+      log "Downloading PAI Bridge binary..."
+      curl -fsSL -o /usr/local/bin/pai-bridge \
+        https://github.com/atypicaltech/pai-do/releases/latest/download/pai-bridge \
+        || { log "ERROR: Failed to download pai-bridge binary"; exit 1; }
+      curl -fsSL -o /tmp/pai-bridge.sha256 \
+        https://github.com/atypicaltech/pai-do/releases/latest/download/pai-bridge.sha256 \
+        || { log "ERROR: Failed to download checksum"; exit 1; }
+      cd /usr/local/bin && sha256sum -c /tmp/pai-bridge.sha256 \
+        || { log "ERROR: Binary checksum verification FAILED"; rm -f /usr/local/bin/pai-bridge; exit 1; }
+      rm -f /tmp/pai-bridge.sha256
+      chmod +x /usr/local/bin/pai-bridge
+      log "PAI Bridge installed and verified at /usr/local/bin/pai-bridge"
+
+      # Create state directories on persistent volume
+      mkdir -p /mnt/pai-data/claude/skills/TelegramBridge/state
+      mkdir -p /mnt/pai-data/memory/conversations
+      mkdir -p /mnt/pai-data/memory/summaries
+      mkdir -p /mnt/pai-data/memory/daily
+      chown -R pai:pai /mnt/pai-data
+
+      # Enable bridge service but DO NOT start (test mode — no competing bot instance)
+      log "Enabling PAI Telegram Bridge service (not starting — test mode)..."
+      systemctl daemon-reload
+      systemctl enable pai-telegram-bridge
+
+      log "Setup complete (test mode — bridge enabled but not started)"
 
 runcmd:
   # Start fail2ban (config baked into snapshot)
   - systemctl enable fail2ban
   - systemctl start fail2ban
 
-  # Setup UFW firewall - SSH only via Tailscale
+  # Setup UFW firewall - SSH only via Tailscale interface
   - ufw default deny incoming
   - ufw default allow outgoing
   - ufw allow in on tailscale0 to any port 22
   - ufw --force enable
+  - ufw logging on
 
-  # Join tailnet with test hostname
+  # Tailscale auth (binary already installed in snapshot)
   - tailscale up --auth-key="${tailscale_auth_key}" --hostname=pai-test --ssh
 
-  # SSH hardening
+  # Run PAI setup
+  - /root/setup-pai.sh
+
+  # Security hardening
   - sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
   - systemctl restart ssh
+
+  # Block DigitalOcean metadata API - prevents secrets exfiltration via user_data
+  # This MUST be the last runcmd entry (after all setup that might need metadata)
+  - iptables -I OUTPUT 1 -d 169.254.169.254 -j REJECT --reject-with icmp-port-unreachable
+  - ip6tables -I OUTPUT 1 -d fd00:ec2::254 -j REJECT --reject-with icmp6-port-unreachable

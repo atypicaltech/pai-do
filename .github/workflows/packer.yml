@@ -86,6 +86,10 @@ jobs:
           TF_VAR_snapshot_id: ${{ needs.build.outputs.snapshot_id }}
           TF_VAR_ssh_fingerprint: ${{ secrets.SSH_FINGERPRINT }}
           TF_VAR_tailscale_auth_key: ${{ secrets.TAILSCALE_AUTH_KEY }}
+          TF_VAR_claude_oauth_token: ${{ secrets.CLAUDE_OAUTH_TOKEN }}
+          TF_VAR_telegram_bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TF_VAR_telegram_allowed_users: ${{ secrets.TELEGRAM_ALLOWED_USERS }}
+          TF_VAR_elevenlabs_api_key: ${{ secrets.ELEVENLABS_API_KEY }}
 
       - name: Output Summary
         if: success()
