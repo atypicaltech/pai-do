@@ -11,9 +11,6 @@ jobs:
     name: Build Snapshot
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    outputs:
-      snapshot_id: ${{ steps.get-snapshot.outputs.snapshot_id }}
-
     defaults:
       run:
         working-directory: packer
@@ -56,51 +53,3 @@ jobs:
           echo "### PAI Base Image Built" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Snapshot ID:** \`${{ steps.get-snapshot.outputs.snapshot_id }}\`" >> $GITHUB_STEP_SUMMARY
-
-  deploy-test:
-    name: Deploy Test VM
-    needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    defaults:
-      run:
-        working-directory: packer/test
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: opentofu/setup-opentofu@v1
-        with:
-          tofu_version: '1.8.0'
-
-      - name: OpenTofu Init
-        run: tofu init
-
-      - name: OpenTofu Apply
-        run: tofu apply -auto-approve
-        env:
-          TF_VAR_do_token: ${{ secrets.DO_TOKEN }}
-          TF_VAR_snapshot_id: ${{ needs.build.outputs.snapshot_id }}
-          TF_VAR_ssh_fingerprint: ${{ secrets.SSH_FINGERPRINT }}
-          TF_VAR_tailscale_auth_key: ${{ secrets.TAILSCALE_AUTH_KEY }}
-          TF_VAR_claude_oauth_token: ${{ secrets.CLAUDE_OAUTH_TOKEN }}
-          TF_VAR_telegram_bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TF_VAR_telegram_allowed_users: ${{ secrets.TELEGRAM_ALLOWED_USERS }}
-          TF_VAR_elevenlabs_api_key: ${{ secrets.ELEVENLABS_API_KEY }}
-
-      - name: Output Summary
-        if: success()
-        run: |
-          DROPLET_IP=$(tofu output -raw droplet_ip)
-          DROPLET_ID=$(tofu output -raw droplet_id)
-          echo "### Test VM Deployed" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Droplet ID:** \`${DROPLET_ID}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Public IP:** \`${DROPLET_IP}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Tailscale:** \`pai-test\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Snapshot:** \`${{ needs.build.outputs.snapshot_id }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "SSH in via: \`ssh root@pai-test\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Run **Teardown Test VM** workflow when done." >> $GITHUB_STEP_SUMMARY
