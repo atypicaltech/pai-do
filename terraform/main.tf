@@ -12,7 +12,7 @@ resource "digitalocean_droplet" "pai" {
   name   = "pai-prod"
   region = var.region
   size   = var.droplet_size
-  image  = "ubuntu-24-04-x64"
+  image  = var.snapshot_id
 
   monitoring = true
   backups    = true

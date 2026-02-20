@@ -22,12 +22,13 @@ type Config struct {
 }
 
 type SessionConfig struct {
-	TimeoutMinutes int
-	MaxConcurrent  int
-	DefaultWorkDir string
-	DefaultModel   string
-	ResetHour      int    // Hour of day (0-23) for daily session reset. -1 to disable.
-	Timezone       string // IANA timezone for reset_hour (e.g. "America/New_York"). Defaults to UTC.
+	TimeoutMinutes       int
+	MaxConcurrent        int
+	DefaultWorkDir       string
+	DefaultModel         string
+	ResetHour            int    // Hour of day (0-23) for daily session reset. -1 to disable.
+	Timezone             string // IANA timezone for reset_hour (e.g. "America/New_York"). Defaults to UTC.
+	SubprocessTimeoutMin int    // Per-message Claude subprocess timeout in minutes. Default 120 (2 hours).
 }
 
 type SecurityConfig struct {
@@ -97,12 +98,13 @@ func LoadConfig() (*Config, error) {
 		BotToken:     botToken,
 		AllowedUsers: jsonStringSlice(tb, "allowed_users"),
 		Sessions: SessionConfig{
-			TimeoutMinutes: jsonIntNested(tb, "sessions", "timeout_minutes", 240),
-			MaxConcurrent:  jsonIntNested(tb, "sessions", "max_concurrent", 2),
-			DefaultWorkDir: resolveHome(jsonStringNested(tb, "sessions", "default_work_dir", "~/projects")),
-			DefaultModel:   jsonStringNested(tb, "sessions", "default_model", "claude-sonnet-4-5-20250929"),
-			ResetHour:      jsonIntNested(tb, "sessions", "reset_hour", 4),
-			Timezone:       jsonStringNested(tb, "sessions", "timezone", "America/New_York"),
+			TimeoutMinutes:       jsonIntNested(tb, "sessions", "timeout_minutes", 240),
+			MaxConcurrent:        jsonIntNested(tb, "sessions", "max_concurrent", 2),
+			DefaultWorkDir:       resolveHome(jsonStringNested(tb, "sessions", "default_work_dir", "~/projects")),
+			DefaultModel:         jsonStringNested(tb, "sessions", "default_model", "claude-sonnet-4-5-20250929"),
+			ResetHour:            jsonIntNested(tb, "sessions", "reset_hour", 4),
+			Timezone:             jsonStringNested(tb, "sessions", "timezone", "America/New_York"),
+			SubprocessTimeoutMin: jsonIntNested(tb, "sessions", "subprocess_timeout_minutes", 120),
 		},
 		Security: SecurityConfig{
 			RequirePassphrase:  jsonBoolNested(tb, "security", "require_passphrase", false),

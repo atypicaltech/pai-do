@@ -432,7 +432,8 @@ func (sm *SessionManager) SendMessage(userID string, text string, attachment *At
 	// Log the user's message
 	sm.memory.LogTurn(userID, session.ID, "user", text)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	subprocessTimeout := time.Duration(sm.config.Sessions.SubprocessTimeoutMin) * time.Minute
+	ctx, cancel := context.WithTimeout(context.Background(), subprocessTimeout)
 
 	cmd := exec.CommandContext(ctx, claudePath, args...)
 	cmd.Dir = session.WorkDir

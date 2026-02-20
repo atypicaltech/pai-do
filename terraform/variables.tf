@@ -55,3 +55,9 @@ variable "elevenlabs_api_key" {
   sensitive   = true
   default     = ""
 }
+
+# Packer base image
+variable "snapshot_id" {
+  description = "DigitalOcean snapshot ID from Packer build (pai-base-*)"
+  type        = string
+}
