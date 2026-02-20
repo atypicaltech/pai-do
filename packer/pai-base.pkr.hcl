@@ -58,7 +58,8 @@ build {
   # 2. Install Go from official tarball
   provisioner "shell" {
     inline = [
-      "GO_VERSION=$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -1)",
+      # Pin to Go 1.23.x — Go 1.24 breaks bytedance/sonic (used by nuclei via gin)
+      "GO_VERSION=$(curl -fsSL 'https://go.dev/dl/?mode=json' | jq -r '[.[].version | select(startswith(\"go1.23\"))] | first')",
       "curl -fsSL \"https://go.dev/dl/$${GO_VERSION}.linux-amd64.tar.gz\" -o /tmp/go.tar.gz",
       "tar -C /usr/local -xzf /tmp/go.tar.gz",
       "rm -f /tmp/go.tar.gz",
