@@ -45,10 +45,11 @@ build {
   provisioner "shell" {
     inline = [
       "export DEBIAN_FRONTEND=noninteractive",
-      # Wait for any existing apt/dpkg processes to finish (unattended-upgrades, cloud-init, etc.)
-      "echo 'Waiting for apt lock...'",
-      "while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || fuser /var/lib/apt/lists/lock >/dev/null 2>&1; do echo 'apt locked, sleeping 5s...'; sleep 5; done",
-      "echo 'apt lock acquired'",
+      # Wait for unattended-upgrades to finish, then disable it to prevent races
+      "systemctl stop unattended-upgrades.service || true",
+      "systemctl stop apt-daily.service apt-daily-upgrade.service || true",
+      "systemctl kill --signal=SIGTERM apt-daily.service apt-daily-upgrade.service || true",
+      "while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do echo 'dpkg locked, sleeping 5s...'; sleep 5; done",
       "apt-get update",
       "apt-get upgrade -y",
       "apt-get install -y ufw fail2ban curl jq ffmpeg unzip nmap masscan nikto sqlmap dnsrecon hydra git libpcap-dev",
