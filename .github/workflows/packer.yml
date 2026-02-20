@@ -45,8 +45,11 @@ jobs:
         id: get-snapshot
         if: success()
         run: |
-          SNAPSHOT_ID=$(jq -r '.builds[-1].artifact_id' manifest.json)
+          RAW_ID=$(jq -r '.builds[-1].artifact_id' manifest.json)
+          # Packer DO builder outputs "region:id" format — extract just the numeric ID
+          SNAPSHOT_ID="${RAW_ID##*:}"
           echo "snapshot_id=$SNAPSHOT_ID" >> $GITHUB_OUTPUT
+          echo "Raw artifact ID: $RAW_ID"
           echo "Snapshot ID: $SNAPSHOT_ID"
 
       - name: Output Summary
