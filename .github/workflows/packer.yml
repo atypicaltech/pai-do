@@ -1,0 +1,47 @@
+name: Build PAI Base Image
+
+on:
+  pull_request:
+    paths: ['packer/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        working-directory: packer
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Packer
+        uses: hashicorp/setup-packer@main
+        with:
+          version: latest
+
+      - name: Packer Init
+        run: packer init pai-base.pkr.hcl
+
+      - name: Packer Validate
+        run: packer validate pai-base.pkr.hcl
+        env:
+          PKR_VAR_do_token: ${{ secrets.DO_TOKEN }}
+
+      - name: Packer Build
+        run: packer build -color=false pai-base.pkr.hcl
+        env:
+          PKR_VAR_do_token: ${{ secrets.DO_TOKEN }}
+
+      - name: Output Summary
+        if: success()
+        run: |
+          echo "### PAI Base Image Built" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Snapshot created in nyc3. Use the snapshot ID as \`packer_snapshot_id\` in Terraform." >> $GITHUB_STEP_SUMMARY
