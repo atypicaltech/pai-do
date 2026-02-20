@@ -58,8 +58,7 @@ build {
   # 2. Install Go from official tarball
   provisioner "shell" {
     inline = [
-      # Pin to Go 1.25.x — nuclei v3.7.0 pins sonic v1.14.0 which breaks on Go 1.26
-      "GO_VERSION=$(curl -fsSL 'https://go.dev/dl/?mode=json' | jq -r '[.[].version | select(startswith(\"go1.25\"))] | first')",
+      "GO_VERSION=$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -1)",
       "curl -fsSL \"https://go.dev/dl/$${GO_VERSION}.linux-amd64.tar.gz\" -o /tmp/go.tar.gz",
       "tar -C /usr/local -xzf /tmp/go.tar.gz",
       "rm -f /tmp/go.tar.gz",
@@ -114,20 +113,11 @@ build {
     ]
   }
 
-  # 8. ProjectDiscovery suite (Go tools — the big time saver)
+  # 8. ProjectDiscovery tool manager (pdtm) via go install, then PD tools via pre-built binaries
   provisioner "shell" {
     inline = [
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest'",
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/httpx/cmd/httpx@latest'",
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest'",
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/naabu/v2/cmd/naabu@latest'",
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/katana/cmd/katana@latest'",
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/dnsx/cmd/dnsx@latest'",
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/tlsx/cmd/tlsx@latest'",
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/cdncheck/cmd/cdncheck@latest'",
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/asnmap/cmd/asnmap@latest'",
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/mapcidr/cmd/mapcidr@latest'",
       "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/pdtm/cmd/pdtm@latest'",
+      "su - pai -c 'export PATH=\"$PATH:/home/pai/go/bin\" && pdtm -install-all'",
     ]
   }
 
@@ -187,14 +177,14 @@ build {
   # 15. Nuclei templates (warm cache so first scan isn't slow)
   provisioner "shell" {
     inline = [
-      "su - pai -c 'export PATH=\"$PATH:/home/pai/go/bin\" && nuclei -update-templates -silent' || true",
+      "su - pai -c 'export PATH=\"$PATH:/home/pai/.pdtm/go/bin:/home/pai/go/bin\" && nuclei -update-templates -silent' || true",
     ]
   }
 
   # 16. Configure PATH for pai user
   provisioner "shell" {
     inline = [
-      "echo 'export PATH=\"/home/pai/.bun/bin:/home/pai/go/bin:/home/pai/.local/bin:/usr/local/bin:$PATH\"' >> /home/pai/.bashrc",
+      "echo 'export PATH=\"/home/pai/.pdtm/go/bin:/home/pai/.bun/bin:/home/pai/go/bin:/home/pai/.local/bin:/usr/local/bin:$PATH\"' >> /home/pai/.bashrc",
       "chown pai:pai /home/pai/.bashrc",
     ]
   }
