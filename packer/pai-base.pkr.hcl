@@ -47,7 +47,7 @@ build {
       "export DEBIAN_FRONTEND=noninteractive",
       "apt-get update",
       "apt-get upgrade -y",
-      "apt-get install -y ufw fail2ban curl jq ffmpeg unzip golang-go nmap masscan nikto sqlmap dnsrecon hydra git",
+      "apt-get install -y ufw fail2ban curl jq ffmpeg unzip golang-go nmap masscan nikto sqlmap dnsrecon hydra git libpcap-dev",
     ]
   }
 
