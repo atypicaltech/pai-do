@@ -41,17 +41,30 @@ source "digitalocean" "pai-base" {
 build {
   sources = ["source.digitalocean.pai-base"]
 
-  # 1. System packages
+  # 1. System packages (no golang-go — we install Go from official tarball below)
   provisioner "shell" {
     inline = [
       "export DEBIAN_FRONTEND=noninteractive",
       "apt-get update",
       "apt-get upgrade -y",
-      "apt-get install -y ufw fail2ban curl jq ffmpeg unzip golang-go nmap masscan nikto sqlmap dnsrecon hydra git libpcap-dev",
+      "apt-get install -y ufw fail2ban curl jq ffmpeg unzip nmap masscan nikto sqlmap dnsrecon hydra git libpcap-dev",
     ]
   }
 
-  # 2. Create pai user
+  # 2. Install Go from official tarball
+  provisioner "shell" {
+    inline = [
+      "GO_VERSION=$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -1)",
+      "curl -fsSL \"https://go.dev/dl/$${GO_VERSION}.linux-amd64.tar.gz\" -o /tmp/go.tar.gz",
+      "tar -C /usr/local -xzf /tmp/go.tar.gz",
+      "rm -f /tmp/go.tar.gz",
+      "ln -sf /usr/local/go/bin/go /usr/local/bin/go",
+      "ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt",
+      "go version",
+    ]
+  }
+
+  # 3. Create pai user
   provisioner "shell" {
     inline = [
       "useradd --system --shell /bin/bash --home-dir /home/pai --create-home pai",
@@ -60,13 +73,13 @@ build {
     ]
   }
 
-  # 3. Fail2ban config
+  # 4. Fail2ban config
   provisioner "file" {
     source      = "files/jail.local"
     destination = "/etc/fail2ban/jail.local"
   }
 
-  # 4. GitHub CLI
+  # 5. GitHub CLI
   provisioner "shell" {
     inline = [
       "GH_VERSION=$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest | jq -r '.tag_name' | sed 's/^v//')",
@@ -78,7 +91,7 @@ build {
     ]
   }
 
-  # 5. DigitalOcean CLI
+  # 6. DigitalOcean CLI
   provisioner "shell" {
     inline = [
       "DOCTL_VERSION=$(curl -fsSL https://api.github.com/repos/digitalocean/doctl/releases/latest | jq -r '.tag_name' | sed 's/^v//')",
@@ -89,46 +102,46 @@ build {
     ]
   }
 
-  # 6. Bun runtime
+  # 7. Bun runtime
   provisioner "shell" {
     inline = [
       "su - pai -c 'curl -fsSL https://bun.sh/install | bash'",
     ]
   }
 
-  # 7. ProjectDiscovery suite (Go tools — the big time saver)
+  # 8. ProjectDiscovery suite (Go tools — the big time saver)
   provisioner "shell" {
     inline = [
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/lib/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest'",
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/lib/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/httpx/cmd/httpx@latest'",
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/lib/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest'",
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/lib/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/naabu/v2/cmd/naabu@latest'",
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/lib/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/katana/cmd/katana@latest'",
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/lib/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/dnsx/cmd/dnsx@latest'",
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/lib/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/tlsx/cmd/tlsx@latest'",
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/lib/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/cdncheck/cmd/cdncheck@latest'",
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/lib/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/asnmap/cmd/asnmap@latest'",
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/lib/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/mapcidr/cmd/mapcidr@latest'",
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/lib/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/pdtm/cmd/pdtm@latest'",
+      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest'",
+      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/httpx/cmd/httpx@latest'",
+      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest'",
+      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/naabu/v2/cmd/naabu@latest'",
+      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/katana/cmd/katana@latest'",
+      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/dnsx/cmd/dnsx@latest'",
+      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/tlsx/cmd/tlsx@latest'",
+      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/cdncheck/cmd/cdncheck@latest'",
+      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/asnmap/cmd/asnmap@latest'",
+      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/mapcidr/cmd/mapcidr@latest'",
+      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/projectdiscovery/pdtm/cmd/pdtm@latest'",
     ]
   }
 
-  # 8. Fuzzing and content discovery
+  # 9. Fuzzing and content discovery
   provisioner "shell" {
     inline = [
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/lib/go/bin:/home/pai/go/bin\" && go install github.com/ffuf/ffuf/v2@latest'",
+      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/ffuf/ffuf/v2@latest'",
     ]
   }
 
-  # 9. URL harvesting
+  # 10. URL harvesting
   provisioner "shell" {
     inline = [
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/lib/go/bin:/home/pai/go/bin\" && go install github.com/tomnomnom/waybackurls@latest'",
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/lib/go/bin:/home/pai/go/bin\" && go install github.com/lc/gau/v2/cmd/gau@latest'",
+      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/tomnomnom/waybackurls@latest'",
+      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/lc/gau/v2/cmd/gau@latest'",
     ]
   }
 
-  # 10. Secret detection
+  # 11. Secret detection
   provisioner "shell" {
     inline = [
       # trufflehog: go install fails due to replace directives in go.mod, use pre-built binary
@@ -137,21 +150,21 @@ build {
       "tar -xzf /tmp/trufflehog.tar.gz -C /home/pai/.local/bin/ trufflehog",
       "chmod +x /home/pai/.local/bin/trufflehog",
       "rm -f /tmp/trufflehog.tar.gz",
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/lib/go/bin:/home/pai/go/bin\" && go install github.com/gitleaks/gitleaks/v8@latest'",
+      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/gitleaks/gitleaks/v8@latest'",
     ]
   }
 
-  # 11. Web crawling and utilities
+  # 12. Web crawling and utilities
   provisioner "shell" {
     inline = [
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/lib/go/bin:/home/pai/go/bin\" && go install github.com/jaeles-project/gospider@latest'",
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/lib/go/bin:/home/pai/go/bin\" && go install github.com/tomnomnom/anew@latest'",
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/lib/go/bin:/home/pai/go/bin\" && go install github.com/tomnomnom/qsreplace@latest'",
-      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/lib/go/bin:/home/pai/go/bin\" && go install github.com/tomnomnom/unfurl@latest'",
+      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/jaeles-project/gospider@latest'",
+      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/tomnomnom/anew@latest'",
+      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/tomnomnom/qsreplace@latest'",
+      "su - pai -c 'export GOPATH=/home/pai/go && export PATH=\"$PATH:/usr/local/go/bin:/home/pai/go/bin\" && go install github.com/tomnomnom/unfurl@latest'",
     ]
   }
 
-  # 12. testssl.sh
+  # 13. testssl.sh
   provisioner "shell" {
     inline = [
       "git clone --depth 1 https://github.com/drwetter/testssl.sh.git /opt/testssl",
@@ -159,21 +172,21 @@ build {
     ]
   }
 
-  # 13. Tailscale (install binary only, auth happens at deploy time)
+  # 14. Tailscale (install binary only, auth happens at deploy time)
   provisioner "shell" {
     inline = [
       "curl -fsSL https://tailscale.com/install.sh | sh",
     ]
   }
 
-  # 14. Nuclei templates (warm cache so first scan isn't slow)
+  # 15. Nuclei templates (warm cache so first scan isn't slow)
   provisioner "shell" {
     inline = [
       "su - pai -c 'export PATH=\"$PATH:/home/pai/go/bin\" && nuclei -update-templates -silent' || true",
     ]
   }
 
-  # 15. Configure PATH for pai user
+  # 16. Configure PATH for pai user
   provisioner "shell" {
     inline = [
       "echo 'export PATH=\"/home/pai/.bun/bin:/home/pai/go/bin:/home/pai/.local/bin:/usr/local/bin:$PATH\"' >> /home/pai/.bashrc",
@@ -181,7 +194,7 @@ build {
     ]
   }
 
-  # 16. Clean up to reduce snapshot size
+  # 17. Clean up to reduce snapshot size
   provisioner "shell" {
     inline = [
       "apt-get clean",
