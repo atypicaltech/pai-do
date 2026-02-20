@@ -1,11 +1,6 @@
 name: Build PAI Base Image
 
 on:
-  push:
-    branches: [main]
-    paths: ['packer/**']
-  pull_request:
-    paths: ['packer/**']
   workflow_dispatch:
 
 permissions:
@@ -65,7 +60,6 @@ jobs:
   deploy-test:
     name: Deploy Test VM
     needs: build
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
