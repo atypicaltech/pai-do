@@ -1,3 +1,20 @@
+# Look up the most recent Packer-built snapshot
+data "digitalocean_images" "pai_base" {
+  filter {
+    key    = "private"
+    values = ["true"]
+  }
+  filter {
+    key    = "name"
+    values = ["pai-base-"]
+    match_by = "substring"
+  }
+  sort {
+    key       = "created"
+    direction = "desc"
+  }
+}
+
 # Persistent storage volume - survives droplet redeployments
 resource "digitalocean_volume" "pai_data" {
   region                  = var.region
@@ -12,7 +29,7 @@ resource "digitalocean_droplet" "pai" {
   name   = "pai-prod"
   region = var.region
   size   = var.droplet_size
-  image  = "ubuntu-24-04-x64"
+  image  = data.digitalocean_images.pai_base.images[0].id
 
   monitoring = true
   backups    = true

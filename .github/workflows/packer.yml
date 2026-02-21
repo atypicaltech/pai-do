@@ -1,0 +1,55 @@
+name: Build PAI Base Image
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: packer
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Packer
+        uses: hashicorp/setup-packer@main
+        with:
+          version: latest
+
+      - name: Packer Init
+        run: packer init pai-base.pkr.hcl
+
+      - name: Packer Validate
+        run: packer validate pai-base.pkr.hcl
+        env:
+          PKR_VAR_do_token: ${{ secrets.DO_TOKEN }}
+
+      - name: Packer Build
+        run: packer build -color=false pai-base.pkr.hcl
+        env:
+          PKR_VAR_do_token: ${{ secrets.DO_TOKEN }}
+
+      - name: Get Snapshot ID
+        id: get-snapshot
+        if: success()
+        run: |
+          RAW_ID=$(jq -r '.builds[-1].artifact_id' manifest.json)
+          # Packer DO builder outputs "region:id" format — extract just the numeric ID
+          SNAPSHOT_ID="${RAW_ID##*:}"
+          echo "snapshot_id=$SNAPSHOT_ID" >> $GITHUB_OUTPUT
+          echo "Raw artifact ID: $RAW_ID"
+          echo "Snapshot ID: $SNAPSHOT_ID"
+
+      - name: Output Summary
+        if: success()
+        run: |
+          echo "### PAI Base Image Built" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Snapshot ID:** \`${{ steps.get-snapshot.outputs.snapshot_id }}\`" >> $GITHUB_STEP_SUMMARY
